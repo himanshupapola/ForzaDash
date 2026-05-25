@@ -16,6 +16,8 @@ https://github.com/himanshupapola/ForzaDash/releases/tag/v1.0.0
 
 Run `ForzaDash.exe`. Normal users do not need Node.js, npm, or the source code.
 
+For the best view, open ForzaDash in fullscreen with `F11`. The dashboard was tested at `1280x800` with a Logitech G29 wheel.
+
 ## Forza Setup
 
 Enable Data Out in Forza Horizon and use:

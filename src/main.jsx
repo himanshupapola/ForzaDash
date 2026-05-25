@@ -1771,6 +1771,10 @@ function SettingsModal({ onClose }) {
             ? "Saved. Port changes apply after restarting the local server/app."
             : "Port changes apply after restarting the local server/app."}
         </p>
+        <p className="settings-note">
+          Best viewed fullscreen with F11. Tested at 1280x800 with a Logitech
+          G29 wheel.
+        </p>
         <div className="settings-actions">
           <button type="button" onClick={resetDefaults}>
             Reset Defaults
