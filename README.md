@@ -10,7 +10,11 @@ It is not a Forza mod menu, trainer, memory editor, or save editor. It does not 
 
 ## Download For Normal Users
 
-If you only want to use ForzaDash, download `ForzaDash.exe` from the GitHub Releases section and run it.
+If you only want to use ForzaDash, download `ForzaDash.exe` from the latest GitHub release and run it:
+
+```text
+https://github.com/himanshupapola/ForzaDash/releases/tag/v1.0.0
+```
 
 You do not need Node.js, npm, or the source code when using the release EXE. The app is packaged as a portable Windows application.
 
