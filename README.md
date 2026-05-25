@@ -27,6 +27,20 @@ You still need:
 
 After opening the EXE, enable Data Out in Forza and use the port shown in the app settings. The default Forza Data Out port is `1234`.
 
+## Forza Setup
+
+Open Forza Horizon and enable Data Out in the game settings.
+
+Use these values:
+
+```text
+Data Out: On
+Data Out IP Address: 127.0.0.1
+Data Out IP Port: 1234
+```
+
+ForzaDash will not show live car data until Data Out is enabled and the port matches the project configuration.
+
 ## What It Does
 
 - Shows a real-time Forza Horizon dashboard in your browser.
@@ -77,20 +91,6 @@ By default, the dashboard opens at:
 ```text
 http://127.0.0.1:5173/
 ```
-
-## Forza Setup
-
-Open Forza Horizon and enable Data Out in the game settings.
-
-Use these values:
-
-```text
-Data Out: On
-Data Out IP Address: 127.0.0.1
-Data Out IP Port: 1234
-```
-
-ForzaDash will not show live car data until Data Out is enabled and the port matches the project configuration.
 
 ## Configuration
 
