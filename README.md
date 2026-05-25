@@ -6,7 +6,7 @@ It is not a Forza mod menu, trainer, memory editor, or save editor. It does not 
 
 ## Demo
 
-<video src="Demo.mp4" controls width="100%"></video>
+<video src="https://raw.githubusercontent.com/himanshupapola/ForzaDash/main/Demo.mp4" controls width="100%"></video>
 
 ## Download For Normal Users
 
