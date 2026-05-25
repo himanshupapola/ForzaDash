@@ -8,6 +8,21 @@ It is not a Forza mod menu, trainer, memory editor, or save editor. It does not 
 
 <video src="Demo.mp4" controls width="100%"></video>
 
+## Download For Normal Users
+
+If you only want to use ForzaDash, download `ForzaDash.exe` from the GitHub Releases section and run it.
+
+You do not need Node.js, npm, or the source code when using the release EXE. The app is packaged as a portable Windows application.
+
+You still need:
+
+- Windows
+- Forza Horizon with Data Out support
+- Data Out enabled in Forza
+- Local network/firewall permission if Windows asks
+
+After opening the EXE, enable Data Out in Forza and use the port shown in the app settings. The default Forza Data Out port is `1234`.
+
 ## What It Does
 
 - Shows a real-time Forza Horizon dashboard in your browser.
@@ -75,7 +90,16 @@ ForzaDash will not show live car data until Data Out is enabled and the port mat
 
 ## Configuration
 
-Copy `.env.example` to `.env` if you want to customize ports, weather, or Spotify:
+Settings can be changed from the settings panel inside ForzaDash. You can change:
+
+- Weather region
+- Dashboard port
+- Forza UDP Data Out port
+- UDP forward port
+- Telemetry WebSocket port
+- Spotify login/client setup
+
+When running from source, you can also copy `.env.example` to `.env` if you want to set defaults before starting the app:
 
 ```bat
 copy .env.example .env
@@ -102,6 +126,8 @@ VITE_PUBLIC_TELEMETRY_WS_PORT    Public mirrored telemetry WebSocket
 ```
 
 If you change `VITE_FORZA_UDP_PORT`, also change the Data Out port inside Forza.
+
+Port changes apply after restarting the app.
 
 ## Development
 
@@ -153,6 +179,37 @@ npm run dist:win
 ```
 
 Build output is written to `dist/`.
+
+The portable Windows EXE is created at:
+
+```text
+dist/ForzaDash.exe
+```
+
+## Publishing A GitHub Release
+
+To add the EXE to the GitHub Releases section:
+
+1. Build the app:
+
+```bat
+npm run dist:win
+```
+
+2. Open the repository on GitHub.
+3. Go to `Releases`.
+4. Click `Draft a new release`.
+5. Create a new tag, for example `v0.1.0`.
+6. Add a release title, for example `ForzaDash v0.1.0`.
+7. Upload this file as the release asset:
+
+```text
+dist/ForzaDash.exe
+```
+
+8. Publish the release.
+
+Normal users can then download `ForzaDash.exe` directly from that release and run it without installing Node.js.
 
 ## Spotify Setup Optional
 
