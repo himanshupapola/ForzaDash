@@ -19,7 +19,7 @@
     "appId": "com.forzadash.app",
     "productName": "ForzaDash",
     "files": [
-      "dist/**/*",
+      "dist/app/**/*",
       "electron/**/*",
       "scripts/**/*",
       "server.cjs",

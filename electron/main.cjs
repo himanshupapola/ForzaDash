@@ -166,7 +166,7 @@ try {
 }
 
 function startDashboardServer() {
-  const dashboardRoot = path.join(__dirname, "..", "dist");
+  const dashboardRoot = path.join(__dirname, "..", "dist", "app");
   const port = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
 
   webServer = http.createServer((request, response) => {
@@ -222,7 +222,8 @@ function createTray(dashboardUrl) {
       createDashboardWindow(dashboardUrl);
       return;
     }
-    dashboardWindow.showInactive();
+    dashboardWindow.show();
+    dashboardWindow.focus();
   });
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -242,7 +243,6 @@ function createDashboardWindow(dashboardUrl) {
     minHeight: 620,
     backgroundColor: "#000204",
     autoHideMenuBar: true,
-    focusable: false,
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -252,7 +252,8 @@ function createDashboardWindow(dashboardUrl) {
 
   dashboardWindow.loadURL(dashboardUrl);
   dashboardWindow.once("ready-to-show", () => {
-    dashboardWindow.showInactive();
+    dashboardWindow.show();
+    dashboardWindow.focus();
   });
   dashboardWindow.on("closed", () => {
     dashboardWindow = null;
@@ -267,7 +268,8 @@ if (singleInstanceLock) {
       if (!dashboardWindow) {
         createDashboardWindow(dashboardUrl);
       } else {
-        dashboardWindow.showInactive();
+        dashboardWindow.show();
+        dashboardWindow.focus();
       }
     }
   });

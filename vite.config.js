@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => {
   return {
     base: "./",
     plugins: [react()],
+    build: {
+      outDir: "dist/app",
+    },
     server: {
       host: "127.0.0.1",
       port: dashboardPort,
