@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS = {
   forzaUdpForwardPort: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT || "1235",
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
+  backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
 
 function readSettings() {
@@ -129,6 +130,11 @@ function formatValue(value, unit = "", digits = 0) {
     return `${Number(normalized).toFixed(digits)}${unit}`;
   }
   return normalized;
+}
+
+function normalizeColor(value, fallback = DEFAULT_SETTINGS.backgroundColor) {
+  const color = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
 
 function getTelemetryValue(telemetry, keys, fallback = null) {
@@ -655,6 +661,28 @@ function ClearWeatherIcon({ size = 42, className = "" }) {
   );
 }
 
+function MoonWeatherIcon({ size = 42, className = "" }) {
+  return (
+    <svg
+      className={`moon-weather-icon ${className}`.trim()}
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        className="moon-weather-icon__moon"
+        d="M45.5 43.5A22 22 0 0 1 23 14.2 22 22 0 1 0 49.8 41c-1.36 1.02-2.8 1.86-4.3 2.5Z"
+      />
+      <path className="moon-weather-icon__star" d="M47 13v8" />
+      <path className="moon-weather-icon__star" d="M43 17h8" />
+      <path className="moon-weather-icon__star" d="M53 27v5" />
+      <path className="moon-weather-icon__star" d="M50.5 29.5h5" />
+    </svg>
+  );
+}
+
 function CloudWeatherIcon({ size = 42, className = "" }) {
   return (
     <svg
@@ -673,8 +701,14 @@ function CloudWeatherIcon({ size = 42, className = "" }) {
   );
 }
 
-function WeatherIcon({ code, size = 42 }) {
-  if (code === 0) return <ClearWeatherIcon size={size} />;
+function WeatherIcon({ code, size = 42, isDay = true }) {
+  if (code === 0) {
+    return isDay ? (
+      <ClearWeatherIcon size={size} />
+    ) : (
+      <MoonWeatherIcon size={size} />
+    );
+  }
   if ([1, 2, 3, 45, 48].includes(code)) return <CloudWeatherIcon size={size} />;
   return <RainCloudIcon size={size} />;
 }
@@ -687,6 +721,7 @@ function fallbackWeatherFor(region) {
     description: "Light Rain",
     location: region,
     error: "",
+    isDay: true,
     code: 61,
     forecast: [
       { day: "Fri", temperature: 25, code: 61 },
@@ -727,6 +762,7 @@ function getCachedWeather(region) {
     );
     if (!cached?.data || !Number.isFinite(cached.savedAt)) return null;
     if (Date.now() - cached.savedAt > WEATHER_CACHE_TTL_MS) return null;
+    if (typeof cached.data.isDay !== "boolean") return null;
     return cached.data;
   } catch {
     return null;
@@ -854,7 +890,7 @@ function useWeather(settings) {
         const forecastParams = new URLSearchParams({
           latitude: String(location.latitude),
           longitude: String(location.longitude),
-          current: "temperature_2m,weather_code",
+          current: "temperature_2m,weather_code,is_day",
           daily: "weather_code,temperature_2m_max",
           forecast_days: "4",
           timezone: "auto",
@@ -876,6 +912,10 @@ function useWeather(settings) {
           ),
           description: describeWeather(forecastData.current?.weather_code),
           code: forecastData.current?.weather_code ?? fallbackWeather.code,
+          isDay:
+            forecastData.current?.is_day == null
+              ? fallbackWeather.isDay
+              : Boolean(forecastData.current.is_day),
           location: location.name,
           error: "",
           forecast: dailyTimes.map((day, index) => ({
@@ -973,7 +1013,12 @@ function App() {
   const gear = formatGear(stableGearRef.current);
 
   return (
-    <main className="dashboard">
+    <main
+      className="dashboard"
+      style={{
+        "--dashboard-bg": normalizeColor(settings.backgroundColor),
+      }}
+    >
       <TopBar
         online={online}
         telemetryStatus={telemetryStatus}
@@ -1027,7 +1072,7 @@ function TopBar({ online, telemetryStatus, weather, clock }) {
         </div>
       </div>
       <div className="time-weather">
-        <WeatherIcon code={weather.code} size={42} />
+        <WeatherIcon code={weather.code} size={42} isDay={weather.isDay} />
         <div>
           <strong>{weather.temperature}°C</strong>
           <span>{weather.description}</span>
@@ -1570,10 +1615,10 @@ function MusicPanel({ onOpenSettings }) {
         >
           {!image && "STARBOY"}
         </div>
-        <div>
+        <div className="track-copy">
           <strong>{title}</strong>
           <span>{artist}</span>
-          <em>{spotifyError || album}</em>
+          <em className="spotify-status">{spotifyError || album}</em>
         </div>
         <Heart className="heart" fill="currentColor" />
       </div>
@@ -1675,6 +1720,7 @@ function SettingsModal({ onClose }) {
       telemetryWsPort:
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
       spotifyClientId: draft.spotifyClientId.trim(),
+      backgroundColor: normalizeColor(draft.backgroundColor),
     });
     setSaved(true);
   }
@@ -1765,6 +1811,17 @@ function SettingsModal({ onClose }) {
             <span>Spotify Client ID</span>
             <input value={maskedSpotifyClientId} readOnly />
           </label>
+          <label>
+            <span>Background Color</span>
+            <input
+              className="color-input"
+              type="color"
+              value={normalizeColor(draft.backgroundColor)}
+              onChange={(event) =>
+                updateField("backgroundColor", event.target.value)
+              }
+            />
+          </label>
         </div>
         <p className="settings-note">
           {saved
@@ -1799,9 +1856,8 @@ function WeatherPanel({ weather }) {
   return (
     <section className="glass-panel weather-panel">
       <div className="weather-icon-block">
-        <h2>WEATHER</h2>
         <div className="weather-icon-stage">
-          <WeatherIcon code={weather.code} size={88} />
+          <WeatherIcon code={weather.code} size={88} isDay={weather.isDay} />
         </div>
       </div>
       <div className={`weather-now ${weather.error ? "weather-error" : ""}`}>

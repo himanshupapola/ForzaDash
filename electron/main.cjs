@@ -1,4 +1,4 @@
-const { app, Menu, shell, Tray } = require("electron");
+const { app, BrowserWindow, Menu, Tray } = require("electron");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -9,6 +9,7 @@ const DEFAULT_DASHBOARD_PORT = 5173;
 let tray = null;
 let webServer = null;
 let dashboardUrl = null;
+let dashboardWindow = null;
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 
@@ -216,7 +217,13 @@ function startDashboardServer() {
 function createTray(dashboardUrl) {
   tray = new Tray(path.join(__dirname, "..", "forza-logo.png"));
   tray.setToolTip("ForzaDash");
-  tray.on("click", () => shell.openExternal(dashboardUrl));
+  tray.on("click", () => {
+    if (!dashboardWindow) {
+      createDashboardWindow(dashboardUrl);
+      return;
+    }
+    dashboardWindow.showInactive();
+  });
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -227,10 +234,41 @@ function createTray(dashboardUrl) {
   );
 }
 
+function createDashboardWindow(dashboardUrl) {
+  dashboardWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 620,
+    backgroundColor: "#000204",
+    autoHideMenuBar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  dashboardWindow.loadURL(dashboardUrl);
+  dashboardWindow.once("ready-to-show", () => {
+    dashboardWindow.showInactive();
+  });
+  dashboardWindow.on("closed", () => {
+    dashboardWindow = null;
+  });
+
+  return dashboardWindow;
+}
+
 if (singleInstanceLock) {
   app.on("second-instance", () => {
     if (dashboardUrl) {
-      shell.openExternal(dashboardUrl);
+      if (!dashboardWindow) {
+        createDashboardWindow(dashboardUrl);
+      } else {
+        dashboardWindow.showInactive();
+      }
     }
   });
 
@@ -240,7 +278,7 @@ if (singleInstanceLock) {
     require(path.join(__dirname, "..", "server.cjs"));
     dashboardUrl = await startDashboardServer();
     createTray(dashboardUrl);
-    await shell.openExternal(dashboardUrl);
+    createDashboardWindow(dashboardUrl);
   });
 }
 

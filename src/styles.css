@@ -32,6 +32,7 @@ button {
 }
 
 .dashboard {
+  --dashboard-bg: #000204;
   --hud-top-row: clamp(76px, 8.2vh, 104px);
   --hud-bottom-row: clamp(148px, 19vh, 220px);
   --hud-gap: clamp(6px, 0.7vw, 12px);
@@ -49,7 +50,12 @@ button {
       rgba(17, 97, 120, 0.04),
       transparent 25%
     ),
-    linear-gradient(180deg, #000204 0%, #010407 54%, #000203 100%);
+    linear-gradient(
+      180deg,
+      var(--dashboard-bg) 0%,
+      color-mix(in srgb, var(--dashboard-bg) 78%, #06131b 22%) 54%,
+      color-mix(in srgb, var(--dashboard-bg) 90%, #000000 10%) 100%
+    );
   display: grid;
   grid-template-rows: var(--hud-top-row) minmax(0, 1fr) var(--hud-bottom-row);
   gap: var(--hud-gap);
@@ -905,23 +911,27 @@ h3 {
 }
 
 .music-panel {
-  padding: clamp(18px, 1.35vw, 26px) clamp(22px, 1.75vw, 34px);
+  padding: clamp(18px, 1.35vw, 26px) clamp(24px, 1.85vw, 36px);
   min-height: 0;
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   align-content: stretch;
+  background: linear-gradient(145deg, rgba(1, 9, 14, 0.96), rgba(0, 4, 8, 0.98));
 }
 
 .panel-title {
-  gap: 10px;
-  padding-bottom: clamp(10px, 1.2vh, 16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  gap: 12px;
+  padding-bottom: clamp(12px, 1.45vh, 18px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   min-width: 0;
 }
 
 .panel-title h2 {
+  color: #25c8ff;
   font-size: clamp(20px, 1.25vw, 24px);
+  letter-spacing: 0;
+  text-shadow: 0 0 14px rgba(37, 200, 255, 0.24);
 }
 
 .spotify-logo {
@@ -1097,40 +1107,66 @@ h3 {
 .track-row {
   margin-top: 0;
   display: grid;
-  grid-template-columns: clamp(128px, 9.2vw, 176px) minmax(0, 1fr) clamp(
+  grid-template-columns: clamp(118px, 8.4vw, 154px) minmax(0, 1fr) clamp(
       24px,
       1.45vw,
       30px
     );
-  gap: clamp(28px, 2.1vw, 44px);
+  gap: clamp(22px, 1.8vw, 34px);
   align-items: center;
   align-self: center;
   min-height: 0;
-  transform: translateY(2%);
+  transform: translateY(1%);
+}
+
+.settings-grid input[type="color"] {
+  min-height: 38px;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.settings-grid input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.settings-grid input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 4px;
 }
 
 .album-art {
-  height: clamp(128px, 9.2vw, 176px);
-  border-radius: 6px;
+  aspect-ratio: 1;
+  height: auto;
+  min-height: clamp(118px, 8.4vw, 154px);
+  border-radius: 8px;
   padding: 8px;
   font-family: Rajdhani, sans-serif;
-  font-size: clamp(22px, 2vw, 38px);
+  font-size: clamp(22px, 1.85vw, 34px);
   font-weight: 700;
   color: #ffe11f;
   background: linear-gradient(145deg, #f2161f, #1a0f31 52%, #060711);
   background-size: cover;
   background-position: center;
   overflow: hidden;
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.track-copy {
+  min-width: 0;
 }
 
 .track-row strong {
   display: block;
   color: white;
-  font-size: clamp(21px, 1.32vw, 28px);
-  margin-bottom: clamp(10px, 1vh, 15px);
+  font-size: clamp(28px, 1.9vw, 38px);
+  line-height: 1.05;
+  margin-bottom: clamp(8px, 0.8vh, 12px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.14);
 }
 
 .track-row span,
@@ -1138,26 +1174,31 @@ h3 {
   display: block;
   color: #8e99a3;
   font-style: normal;
-  font-size: clamp(15px, 0.95vw, 18px);
-  margin-top: clamp(7px, 0.85vh, 10px);
+  font-size: clamp(16px, 1.05vw, 21px);
+  margin-top: clamp(6px, 0.75vh, 10px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.track-row .spotify-status {
+  color: #d7dee3;
+  font-size: clamp(14px, 0.92vw, 18px);
+}
+
 .heart {
   color: #ff3146;
-  width: clamp(22px, 1.35vw, 28px);
-  height: clamp(22px, 1.35vw, 28px);
+  width: clamp(28px, 1.7vw, 34px);
+  height: clamp(28px, 1.7vw, 34px);
   align-self: center;
+  filter: drop-shadow(0 0 10px rgba(255, 49, 70, 0.28));
 }
 
 .progress {
-  height: 3px;
+  height: 4px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  margin: clamp(16px, 1.8vh, 24px) clamp(48px, 3.7vw, 72px) 0
-    clamp(52px, 4vw, 76px);
+  background: rgba(255, 255, 255, 0.13);
+  margin: clamp(14px, 1.7vh, 22px) clamp(42px, 3.2vw, 62px) 0;
   position: relative;
 }
 
@@ -1202,19 +1243,19 @@ h3 {
   width: clamp(9px, 0.65vw, 12px);
   height: clamp(9px, 0.65vw, 12px);
   border-radius: 50%;
-  background: #c7d0d6;
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.28);
+  background: #25c8ff;
+  box-shadow: 0 0 12px rgba(37, 200, 255, 0.55);
   transform: translate(50%, -50%);
 }
 
 .music-controls {
-  min-height: clamp(74px, 10vh, 116px);
-  padding-top: clamp(10px, 1.4vh, 18px);
+  min-height: clamp(68px, 9vh, 104px);
+  padding-top: clamp(14px, 1.8vh, 22px);
   padding-bottom: clamp(4px, 0.8vh, 12px);
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: clamp(22px, 2.2vw, 42px);
+  gap: clamp(24px, 2.5vw, 48px);
 }
 
 .music-controls svg {
@@ -1271,13 +1312,13 @@ h3 {
 }
 
 .weather-panel {
-  padding: clamp(18px, 1.45vw, 26px) clamp(22px, 1.8vw, 34px);
+  padding: clamp(16px, 1.35vw, 24px) clamp(22px, 1.8vw, 34px);
   display: grid;
-  grid-template-columns: minmax(126px, 0.75fr) minmax(130px, 0.85fr) minmax(
+  grid-template-columns: minmax(112px, 0.62fr) minmax(130px, 0.88fr) minmax(
       154px,
-      1.05fr
+      1.08fr
     );
-  gap: clamp(18px, 1.6vw, 30px);
+  gap: clamp(16px, 1.45vw, 28px);
   align-items: center;
   min-height: 0;
   overflow: hidden;
@@ -1285,14 +1326,13 @@ h3 {
 
 .weather-icon-block {
   display: grid;
-  align-content: center;
-  gap: clamp(8px, 1vh, 14px);
+  place-items: center;
   min-width: 0;
 }
 
 .weather-icon-stage {
-  width: clamp(92px, 6.8vw, 124px);
-  aspect-ratio: 1.25;
+  width: clamp(92px, 7.2vw, 132px);
+  aspect-ratio: 1;
   display: grid;
   place-items: center;
   overflow: visible;
@@ -1304,6 +1344,7 @@ h3 {
 }
 
 .clear-weather-icon,
+.moon-weather-icon,
 .cloud-weather-icon {
   overflow: visible;
   filter: drop-shadow(0 0 5px rgba(222, 241, 255, 0.2));
@@ -1313,6 +1354,8 @@ h3 {
 .rain-cloud-icon__rain,
 .clear-weather-icon__sun,
 .clear-weather-icon__ray,
+.moon-weather-icon__moon,
+.moon-weather-icon__star,
 .cloud-weather-icon__cloud {
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1339,6 +1382,20 @@ h3 {
   fill: rgba(18, 207, 255, 0.08);
 }
 
+.moon-weather-icon__moon,
+.moon-weather-icon__star {
+  stroke: #dbe7ef;
+  stroke-width: 4;
+}
+
+.moon-weather-icon__moon {
+  fill: rgba(18, 207, 255, 0.06);
+}
+
+.moon-weather-icon__star {
+  stroke-width: 3.2;
+}
+
 .cloud-weather-icon__cloud {
   stroke: #dbe7ef;
   stroke-width: 4.2;
@@ -1356,13 +1413,11 @@ h3 {
 
 .forecast .clear-weather-icon__sun,
 .forecast .clear-weather-icon__ray,
+.forecast .moon-weather-icon__moon,
+.forecast .moon-weather-icon__star,
 .forecast .cloud-weather-icon__cloud {
   stroke: #c8d4dc;
   stroke-width: 4.2;
-}
-
-.weather-panel h2 {
-  margin-bottom: 0;
 }
 
 .weather-now strong {
@@ -1825,7 +1880,7 @@ h3 {
   }
 
   .album-art {
-    height: clamp(96px, 7.6vw, 132px);
+    min-height: clamp(96px, 7.6vw, 132px);
   }
 
   .music-controls {
@@ -1838,7 +1893,7 @@ h3 {
   }
 
   .weather-panel {
-    grid-template-columns: 86px minmax(112px, 1fr) minmax(118px, 0.9fr);
+    grid-template-columns: 92px minmax(112px, 1fr) minmax(118px, 0.9fr);
     gap: 10px;
   }
 
@@ -2069,7 +2124,7 @@ h3 {
   }
 
   .album-art {
-    height: clamp(76px, 24vw, 116px);
+    min-height: clamp(76px, 24vw, 116px);
   }
 
   .progress {
@@ -2078,7 +2133,7 @@ h3 {
   }
 
   .weather-panel {
-    grid-template-columns: minmax(74px, 0.7fr) minmax(100px, 1fr) minmax(
+    grid-template-columns: minmax(82px, 0.7fr) minmax(100px, 1fr) minmax(
         128px,
         1.2fr
       );
