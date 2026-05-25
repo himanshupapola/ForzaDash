@@ -1,37 +1,24 @@
 # ForzaDash
 
-ForzaDash is a local telemetry dashboard for Forza Horizon. It reads the game's built-in Data Out UDP stream and turns it into a live racing HUD with speed, RPM, gear, tire temperature, suspension travel, inputs, power, weather, and optional Spotify controls.
+A SimHub-style live telemetry dashboard for Forza Horizon. ForzaDash reads the official Forza Data Out stream and shows a clean racing HUD with speed, RPM, gear, tire temps, suspension, inputs, power, weather, and optional Spotify controls.
 
-It is not a Forza mod menu, trainer, memory editor, or save editor. It does not patch the game, inject into the game, or change any game files. ForzaDash only listens to telemetry that Forza already exposes through Data Out.
+ForzaDash is not a mod menu, trainer, or memory editor. It does not patch, inject into, or modify Forza files. It only listens to telemetry that Forza already sends through Data Out.
 
 ## Demo
 
 https://github.com/user-attachments/assets/e52d98cd-b22d-4727-8465-2ab6a72d2553
 
-## Download For Normal Users
+## Download
 
-If you only want to use ForzaDash, download `ForzaDash.exe` from the latest GitHub release and run it:
+Download the Windows EXE from the latest release:
 
-```text
 https://github.com/himanshupapola/ForzaDash/releases/tag/v1.0.0
-```
 
-You do not need Node.js, npm, or the source code when using the release EXE. The app is packaged as a portable Windows application.
-
-You still need:
-
-- Windows
-- Forza Horizon with Data Out support
-- Data Out enabled in Forza
-- Local network/firewall permission if Windows asks
-
-After opening the EXE, enable Data Out in Forza and use the port shown in the app settings. The default Forza Data Out port is `1234`.
+Run `ForzaDash.exe`. Normal users do not need Node.js, npm, or the source code.
 
 ## Forza Setup
 
-Open Forza Horizon and enable Data Out in the game settings.
-
-Use these values:
+Enable Data Out in Forza Horizon and use:
 
 ```text
 Data Out: On
@@ -39,99 +26,44 @@ Data Out IP Address: 127.0.0.1
 Data Out IP Port: 1234
 ```
 
-ForzaDash will not show live car data until Data Out is enabled and the port matches the project configuration.
+If the dashboard does not react, check that the Data Out port in Forza matches the ForzaDash UDP port. Port changes apply after restarting the app.
 
-## What It Does
+## Features
 
-- Shows a real-time Forza Horizon dashboard in your browser.
-- Reads Forza Data Out from `127.0.0.1`.
-- Displays speed, RPM, gear, boost, throttle, brake, clutch, steering, tire temperatures, suspension, torque, and horsepower.
-- Provides a mirrored WebSocket telemetry stream for other local tools.
-- Includes weather display based on a configurable region.
-- Supports optional Spotify playback controls when a Spotify Client ID is configured.
-- Can run as a local web app during development or as a packaged Windows Electron app.
+- Live speed, RPM, gear, boost, throttle, brake, clutch, and steering
+- Tire temperature and suspension panels
+- Live power and torque graph
+- Weather panel with configurable region
+- Optional Spotify playback controls
+- Public local telemetry WebSocket for other tools
+- Portable Windows build
 
 ## Supported Games
 
 ForzaDash is designed for Forza Horizon games that support Data Out telemetry, including Forza Horizon 4, Forza Horizon 5, and Forza Horizon 6.
 
-## Requirements
+## Settings
 
-- Windows
-- Forza Horizon with Data Out support
-- Node.js LTS from `https://nodejs.org/`
-- npm, included with Node.js
-
-## Quick Start
-
-Download or clone the project, then open the project folder in Command Prompt or PowerShell.
-
-Install dependencies once:
-
-```bat
-npm install
-```
-
-Start ForzaDash:
-
-```bat
-main.bat
-```
-
-Choose:
-
-```text
-1. Start HUD and open web dashboard
-```
-
-Keep the command window open while using the dashboard.
-
-By default, the dashboard opens at:
-
-```text
-http://127.0.0.1:5173/
-```
-
-## Configuration
-
-Settings can be changed from the settings panel inside ForzaDash. You can change:
+These can be changed from the app settings panel:
 
 - Weather region
 - Dashboard port
 - Forza UDP Data Out port
 - UDP forward port
 - Telemetry WebSocket port
-- Spotify login/client setup
+- Spotify setup
 
-When running from source, you can also copy `.env.example` to `.env` if you want to set defaults before starting the app:
-
-```bat
-copy .env.example .env
-```
-
-Default settings:
-
-```env
-VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
-VITE_WEATHER_REGION=Bageshwar
-VITE_DASHBOARD_PORT=5173
-VITE_FORZA_UDP_PORT=1234
-VITE_TELEMETRY_WS_PORT=17878
-VITE_PUBLIC_TELEMETRY_WS_PORT=5174
-```
-
-Port meanings:
+Default local dashboard:
 
 ```text
-VITE_DASHBOARD_PORT              Browser dashboard
-VITE_FORZA_UDP_PORT              Forza Data Out UDP input
-VITE_TELEMETRY_WS_PORT           Internal telemetry WebSocket
-VITE_PUBLIC_TELEMETRY_WS_PORT    Public mirrored telemetry WebSocket
+http://127.0.0.1:5173/
 ```
 
-If you change `VITE_FORZA_UDP_PORT`, also change the Data Out port inside Forza.
+Default public telemetry stream:
 
-Port changes apply after restarting the app.
+```text
+ws://127.0.0.1:5174/
+```
 
 ## Development
 
@@ -141,127 +73,49 @@ Install dependencies:
 npm install
 ```
 
-Run the local development server:
+Start the app in development:
 
 ```bat
 npm run dev
 ```
 
-This starts both:
-
-- The telemetry server from `server.cjs`
-- The Vite React dashboard
-
-Open:
-
-```text
-http://127.0.0.1:5173/
-```
-
-Useful scripts:
-
-```bat
-npm run dev       # Start telemetry server and Vite together
-npm run web       # Start only the Vite frontend
-npm run server    # Start only the telemetry server
-npm run build     # Build the web app
-npm run dist:win  # Build a portable Windows Electron app
-```
-
-## Building The App
-
-Create a production web build:
+Build the web app:
 
 ```bat
 npm run build
 ```
 
-Create a portable Windows app:
+Build the portable Windows EXE:
 
 ```bat
 npm run dist:win
 ```
 
-Build output is written to `dist/`.
-
-The portable Windows EXE is created at:
+The EXE is created at:
 
 ```text
 dist/ForzaDash.exe
 ```
 
-## Spotify Setup Optional
+## Spotify Optional
 
-Spotify is optional. The dashboard works without it.
-
-To enable Spotify controls:
-
-1. Create an app in the Spotify Developer Dashboard.
-2. Add this Redirect URI:
+Spotify is optional. To enable controls, create a Spotify app, add this Redirect URI:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-3. Copy your Spotify Client ID into `.env`:
-
-```env
-VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
-```
-
-4. Restart ForzaDash.
-5. Open settings in the dashboard and log in to Spotify.
-
-## Public Telemetry Stream
-
-Other local apps can read parsed telemetry from:
-
-```text
-ws://127.0.0.1:5174/
-```
-
-If you change `VITE_PUBLIC_TELEMETRY_WS_PORT`, use the new port instead.
-
-## Stopping ForzaDash
-
-Run:
-
-```bat
-main.bat
-```
-
-Choose:
-
-```text
-2. Stop HUD and close
-```
-
-This stops the local dashboard and telemetry ports.
+Then set `VITE_SPOTIFY_CLIENT_ID` in `.env` and restart ForzaDash.
 
 ## Troubleshooting
 
-If the dashboard opens but does not react to the car:
+If live data does not appear:
 
-- Make sure Forza Data Out is turned on.
-- Make sure the Data Out IP is `127.0.0.1`.
-- Make sure the Data Out port is `1234`, or matches `VITE_FORZA_UDP_PORT`.
-- Keep `main.bat` open while using the dashboard.
-- Restart ForzaDash after changing `.env` or Forza Data Out settings.
-
-If the dashboard does not start:
-
-```bat
-npm install
-npm run dev
-```
-
-If ports are stuck, run `main.bat` and choose option `2`, then start again.
-
-## Safety Note
-
-ForzaDash does not modify Forza Horizon files and does not need access to the game installation folder. It only reads local telemetry sent by the game's official Data Out feature.
-
-Use third-party tools responsibly and follow the terms of service for the game and platform you play on.
+- Make sure Data Out is enabled in Forza.
+- Make sure the IP is `127.0.0.1`.
+- Make sure the Data Out port is `1234`, or matches the app setting.
+- Allow firewall/network access if Windows asks.
+- Restart ForzaDash after changing ports.
 
 ## Disclaimer
 
