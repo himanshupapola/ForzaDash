@@ -6,11 +6,7 @@ It is not a Forza mod menu, trainer, memory editor, or save editor. It does not 
 
 ## Demo
 
-[Watch the demo video](Demo.mp4)
-
-```text
-Demo.mp4
-```
+<video src="Demo.mp4" controls width="100%"></video>
 
 ## What It Does
 
@@ -24,7 +20,7 @@ Demo.mp4
 
 ## Supported Games
 
-ForzaDash is designed for Forza Horizon games that support Data Out telemetry, including Forza Horizon 4 and Forza Horizon 5.
+ForzaDash is designed for Forza Horizon games that support Data Out telemetry, including Forza Horizon 4, Forza Horizon 5, and Forza Horizon 6.
 
 ## Requirements
 
