@@ -190,31 +190,6 @@ The portable Windows EXE is created at:
 dist/ForzaDash.exe
 ```
 
-## Publishing A GitHub Release
-
-To add the EXE to the GitHub Releases section:
-
-1. Build the app:
-
-```bat
-npm run dist:win
-```
-
-2. Open the repository on GitHub.
-3. Go to `Releases`.
-4. Click `Draft a new release`.
-5. Create a new tag, for example `v0.1.0`.
-6. Add a release title, for example `ForzaDash v0.1.0`.
-7. Upload this file as the release asset:
-
-```text
-dist/ForzaDash.exe
-```
-
-8. Publish the release.
-
-Normal users can then download `ForzaDash.exe` directly from that release and run it without installing Node.js.
-
 ## Spotify Setup Optional
 
 Spotify is optional. The dashboard works without it.
