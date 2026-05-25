@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import {
   Car,
   Heart,
-  Music2,
   Pause,
   Play,
   Repeat,
@@ -15,11 +14,17 @@ import {
 import forzaLogo from "./assets/forza-logo.png";
 import carTopView from "./assets/car.png";
 import suspensionImage from "./assets/susp.png";
+import spotifyLogo from "./assets/spotify.png";
 import {
   completeSpotifyLogin,
+  ensureSpotifyDevice,
   getPlaybackState,
+  hasSpotifyLogin,
   isSpotifyConfigured,
   loginSpotify,
+  logoutSpotify,
+  setSpotifyRepeat,
+  setSpotifyShuffle,
   spotifyCommand,
 } from "./spotify";
 import "./styles.css";
@@ -44,6 +49,52 @@ const fallbackTelemetry = {
   parsedCount: 0,
   lastSender: "-",
 };
+
+const SETTINGS_KEY = "forzadash_settings";
+const DEFAULT_SETTINGS = {
+  weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
+  dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
+  forzaUdpPort: import.meta.env.VITE_FORZA_UDP_PORT || "1234",
+  forzaUdpForwardPort: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT || "1235",
+  telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
+  spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
+};
+
+function readSettings() {
+  try {
+    return {
+      ...DEFAULT_SETTINGS,
+      ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") || {}),
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  window.dispatchEvent(
+    new CustomEvent("forzadash:settings", { detail: settings }),
+  );
+}
+
+function useSettings() {
+  const [settings, setSettings] = useState(readSettings);
+
+  useEffect(() => {
+    function sync(event) {
+      setSettings(event.detail || readSettings());
+    }
+    window.addEventListener("forzadash:settings", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("forzadash:settings", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  return settings;
+}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -171,7 +222,12 @@ function useSmoothedTelemetry(targetTelemetry) {
       for (const key of SMOOTH_TELEMETRY_KEYS) {
         const currentValue = displayRef.current?.[key];
         const targetValue = target?.[key];
-        const smoothed = smoothValue(Number(currentValue), Number(targetValue), dt, key);
+        const smoothed = smoothValue(
+          Number(currentValue),
+          Number(targetValue),
+          dt,
+          key,
+        );
         if (Number.isFinite(smoothed)) {
           next[key] = smoothed;
           if (Math.abs(smoothed - Number(currentValue || 0)) > 0.001) {
@@ -195,13 +251,25 @@ function useSmoothedTelemetry(targetTelemetry) {
 function formatTireTemp(value) {
   if (value == null || value === "") return "0°C";
   const numeric = Number(String(value).replace(/[°CF]+/gi, ""));
-  if (Number.isFinite(numeric)) return `${Math.round(numeric)}°C`;
+  if (Number.isFinite(numeric))
+    return `${Math.round(normalizeDisplayTireTemp(numeric))}°C`;
   return String(value);
 }
 
 function parseTireTemp(value) {
   const numeric = Number(String(value).replace(/[°CF]+/gi, ""));
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeDisplayTireTemp(value) {
+  if (value <= 122) return Math.max(0, value);
+  return 122 + Math.sqrt(value - 122) * 1.15;
+}
+
+function hasUsefulValues(values, minimum = 0) {
+  return values.some(
+    (value) => Number.isFinite(value) && Math.abs(value) > minimum,
+  );
 }
 
 function formatSuspensionTravel(value) {
@@ -276,9 +344,9 @@ function getTireTempValues(telemetry) {
     telemetry.tireTempFrontRight,
     telemetry.tireTempRearLeft,
     telemetry.tireTempRearRight,
-  ];
-  if (direct.some((value) => value != null)) {
-    return direct.map(parseTireTemp);
+  ].map(parseTireTemp);
+  if (hasUsefulValues(direct, 1)) {
+    return direct;
   }
 
   const values = getTelemetryArray(
@@ -322,12 +390,12 @@ function deriveEstimatedTireTemps(telemetry) {
   const turnIntensity = Math.abs(steer);
   const driftIntensity = clamp(turnIntensity * clamp(speed / 120, 0, 1), 0, 1);
 
-  const ambientTemp = 65;
-  const speedHeat = speed * 0.18;
-  const throttleHeat = throttle * 0.05;
-  const brakeHeat = Math.min(brake, 80) * 0.04;
-  const turnTemp = 12 * turnIntensity * clamp(speed / 140, 0, 1);
-  const driftTemp = 14 * driftIntensity;
+  const ambientTemp = 54;
+  const speedHeat = speed * 0.12;
+  const throttleHeat = throttle * 0.035;
+  const brakeHeat = Math.min(brake, 80) * 0.03;
+  const turnTemp = 8 * turnIntensity * clamp(speed / 140, 0, 1);
+  const driftTemp = 10 * driftIntensity;
 
   const baseTemp = ambientTemp + speedHeat + throttleHeat + brakeHeat;
   const frontOutside = baseTemp + turnTemp * 0.9 + driftTemp * 1.0;
@@ -340,7 +408,55 @@ function deriveEstimatedTireTemps(telemetry) {
   const rearLeft = steer >= 0 ? rearOutside : rearInside;
   const rearRight = steer >= 0 ? rearInside : rearOutside;
 
-  return [frontLeft, frontRight, rearLeft, rearRight];
+  return [frontLeft, frontRight, rearLeft, rearRight].map((value) =>
+    clamp(value, 35, 118),
+  );
+}
+
+function updateModeledTireTemps(telemetry, previousTemps, elapsedSeconds) {
+  const dt = clamp(elapsedSeconds, 0.016, 1);
+  const speed = clamp(telemetry.speedKmh ?? 0, 0, 260);
+  const throttle = clamp(telemetry.throttle ?? 0, 0, 100) / 100;
+  const brake = clamp(telemetry.brake ?? 0, 0, 100) / 100;
+  const steer = clamp((telemetry.steer ?? 0) / 127, -1, 1);
+  const rpmRatio = clamp(
+    (telemetry.rpm ?? 0) / Math.max(telemetry.maxRpm ?? 10000, 1),
+    0,
+    1,
+  );
+  const lateralG = clamp((telemetry.accelerationX ?? 0) / 10, -1, 1);
+  const longitudinalG = clamp((telemetry.accelerationZ ?? 0) / 10, -1, 1);
+  const turn = Math.abs(lateralG) > 0.04 ? lateralG : steer;
+  const turnIntensity = clamp(Math.abs(turn), 0, 1);
+  const speedLoad = clamp(speed / 165, 0, 1);
+  const moving = clamp(speed / 25, 0, 1);
+  const driftLoad = turnIntensity * clamp(speed / 90, 0, 1);
+  const driveLoad = throttle * (0.5 + rpmRatio * 0.5) * moving;
+  const brakeLoad = brake * (0.35 + speedLoad * 0.65);
+  const ambient = 42;
+
+  return previousTemps.map((previous, index) => {
+    const isFront = index < 2;
+    const isLeft = index === 0 || index === 2;
+    const outsideLoad = turn === 0 ? 0.5 : turn > 0 === isLeft ? 1 : 0.35;
+    const axleDrive = isFront ? 0.35 : 1;
+    const brakeBias = isFront ? 1 : 0.52;
+    const cornerHeat = turnIntensity * outsideLoad * speedLoad * 12;
+    const accelerationHeat = driveLoad * axleDrive * 7.2;
+    const brakingHeat = brakeLoad * brakeBias * 10.5;
+    const rollingHeat = moving * (1.6 + speedLoad * 4.2);
+    const driftHeat = driftLoad * (isFront ? 3.4 : 8.5) * outsideLoad;
+    const idleCooling =
+      speed < 4 && throttle < 0.05 && brake < 0.05 ? 0.075 : 0;
+    const cooling =
+      (0.028 + speed * 0.00055 + idleCooling) * Math.max(0, previous - ambient);
+    const heatDelta =
+      rollingHeat + cornerHeat + accelerationHeat + brakingHeat + driftHeat;
+    const heatFade = clamp((158 - previous) / 72, 0.18, 1);
+    const next = previous + (heatDelta * heatFade - cooling) * dt;
+
+    return clamp(next, 34, 220);
+  });
 }
 
 function parseSuspensionTravel(value) {
@@ -355,9 +471,9 @@ function getSuspensionValues(telemetry) {
     telemetry.suspensionTravelMetersFrontRight,
     telemetry.suspensionTravelMetersRearLeft,
     telemetry.suspensionTravelMetersRearRight,
-  ];
-  if (direct.some((value) => value != null)) {
-    return direct.map(parseSuspensionTravel);
+  ].map((value) => parseSuspensionTravel(value) * 100);
+  if (hasUsefulValues(direct, 0.05)) {
+    return direct;
   }
 
   const values = getTelemetryArray(
@@ -436,11 +552,61 @@ function deriveEstimatedSuspension(telemetry) {
   );
 }
 
+function updateModeledSuspensionTravel(
+  telemetry,
+  previousTravel,
+  elapsedSeconds,
+) {
+  const dt = clamp(elapsedSeconds, 0.016, 1);
+  const speed = clamp(telemetry.speedKmh ?? 0, 0, 260);
+  const throttle = clamp(telemetry.throttle ?? 0, 0, 100) / 100;
+  const brake = clamp(telemetry.brake ?? 0, 0, 100) / 100;
+  const steer = clamp((telemetry.steer ?? 0) / 127, -1, 1);
+  const lateralG = clamp((telemetry.accelerationX ?? 0) / 10, -1.2, 1.2);
+  const longitudinalG = clamp((telemetry.accelerationZ ?? 0) / 10, -1.2, 1.2);
+  const speedLoad = clamp(speed / 180, 0, 1);
+  const turn = Math.abs(lateralG) > 0.04 ? lateralG : steer * speedLoad;
+  const turnAmount = Math.abs(turn);
+  const base = 2.15 + speedLoad * 0.28;
+  const brakeDive =
+    brake * (0.58 + speedLoad * 0.32) + Math.max(0, longitudinalG) * 0.35;
+  const throttleSquat =
+    throttle * (0.34 + speedLoad * 0.24) + Math.max(0, -longitudinalG) * 0.22;
+  const roll = turnAmount * (0.52 + speedLoad * 0.34);
+
+  const targets = [0, 1, 2, 3].map((index) => {
+    const isFront = index < 2;
+    const isLeft = index === 0 || index === 2;
+    const outside = turn === 0 ? 0.5 : turn > 0 === isLeft ? 1 : 0.16;
+    const insideLift = turn === 0 ? 0 : turn > 0 === isLeft ? 0 : 0.2;
+    const axleLoad = isFront
+      ? brakeDive * 0.74 - throttleSquat * 0.16
+      : throttleSquat * 0.78 - brakeDive * 0.18;
+    const cornerLoad = roll * outside - roll * insideLift;
+    const vibration =
+      speedLoad *
+      (Math.sin(Date.now() / 120 + index * 1.7) * 0.05 +
+        Math.sin(Date.now() / 53 + index) * 0.025);
+
+    return clamp(base + axleLoad + cornerLoad + vibration, 1.35, 5.4);
+  });
+
+  const response = 1 - Math.exp(-dt * 7.5);
+  return previousTravel.map((previous, index) => {
+    const target = targets[index] ?? previous;
+    return previous + (target - previous) * response;
+  });
+}
+
 function formatTime(ms = 0) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function validTemperature(value) {
+  return Number.isFinite(value) && value > -40 && value < 150;
 }
 
 function RainCloudIcon({ size = 42, className = "" }) {
@@ -501,7 +667,7 @@ function CloudWeatherIcon({ size = 42, className = "" }) {
     >
       <path
         className="cloud-weather-icon__cloud"
-        d="M18.5 41H17a12 12 0 0 1 0-24c1.3 0 2.55.2 3.72.59A17 17 0 0 1 53 25h1.5a8 8 0 0 1 0 16H47"
+        d="M18.5 41H50.5a8.5 8.5 0 0 0 0-17h-1.4A16 16 0 0 0 18.8 18A11.5 11.5 0 0 0 18.5 41Z"
       />
     </svg>
   );
@@ -513,20 +679,23 @@ function WeatherIcon({ code, size = 42 }) {
   return <RainCloudIcon size={size} />;
 }
 
-const WEATHER_REGION = import.meta.env.VITE_WEATHER_REGION || "Bageshwar";
+const WEATHER_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
-const fallbackWeather = {
-  temperature: 24,
-  description: "Light Rain",
-  location: WEATHER_REGION,
-  code: 61,
-  forecast: [
-    { day: "Fri", temperature: 25, code: 61 },
-    { day: "Sat", temperature: 22, code: 61 },
-    { day: "Sun", temperature: 20, code: 61 },
-    { day: "Mon", temperature: 21, code: 3 },
-  ],
-};
+function fallbackWeatherFor(region) {
+  return {
+    temperature: 24,
+    description: "Light Rain",
+    location: region,
+    error: "",
+    code: 61,
+    forecast: [
+      { day: "Fri", temperature: 25, code: 61 },
+      { day: "Sat", temperature: 22, code: 61 },
+      { day: "Sun", temperature: 20, code: 61 },
+      { day: "Mon", temperature: 21, code: 3 },
+    ],
+  };
+}
 
 function describeWeather(code) {
   if (code === 0) return "Clear";
@@ -545,6 +714,34 @@ function formatForecastDay(dateText) {
   return new Intl.DateTimeFormat("en", { weekday: "short" }).format(
     new Date(`${dateText}T12:00:00`),
   );
+}
+
+function weatherCacheKey(region) {
+  return `forzadash-weather:${region}`;
+}
+
+function getCachedWeather(region) {
+  try {
+    const cached = JSON.parse(
+      localStorage.getItem(weatherCacheKey(region)) || "null",
+    );
+    if (!cached?.data || !Number.isFinite(cached.savedAt)) return null;
+    if (Date.now() - cached.savedAt > WEATHER_CACHE_TTL_MS) return null;
+    return cached.data;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedWeather(region, data) {
+  try {
+    localStorage.setItem(
+      weatherCacheKey(region),
+      JSON.stringify({ data, savedAt: Date.now() }),
+    );
+  } catch {
+    // Weather still works without cache if browser storage is blocked.
+  }
 }
 
 function useClock() {
@@ -570,16 +767,68 @@ function useClock() {
   };
 }
 
-function useWeather() {
-  const [weather, setWeather] = useState(fallbackWeather);
+function useHardwareTemperature() {
+  const settings = useSettings();
+  const [hardwareTemperature, setHardwareTemperature] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHardwareTemperature() {
+      try {
+        const telemetryPort =
+          settings.telemetryWsPort || DEFAULT_SETTINGS.telemetryWsPort;
+        const response = await fetch(
+          `http://127.0.0.1:${telemetryPort}/api/hardware-temp`,
+        );
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(`Expected JSON, got ${contentType || "unknown"}`);
+        }
+        const data = await response.json();
+        if (!cancelled) {
+          setHardwareTemperature(
+            Number.isFinite(data?.temperature) ? data : null,
+          );
+        }
+      } catch {
+        if (!cancelled) setHardwareTemperature(null);
+      }
+    }
+
+    loadHardwareTemperature();
+    const interval = window.setInterval(loadHardwareTemperature, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [settings.telemetryWsPort]);
+
+  return hardwareTemperature;
+}
+
+function useWeather(settings) {
+  const weatherRegion =
+    settings.weatherRegion || DEFAULT_SETTINGS.weatherRegion;
+  const fallbackWeather = fallbackWeatherFor(weatherRegion);
+  const [weather, setWeather] = useState(
+    () => getCachedWeather(weatherRegion) || fallbackWeather,
+  );
 
   useEffect(() => {
     const controller = new AbortController();
+    setWeather(getCachedWeather(weatherRegion) || fallbackWeather);
 
     async function loadWeather() {
+      const cachedWeather = getCachedWeather(weatherRegion);
+      if (cachedWeather) {
+        setWeather(cachedWeather);
+        return;
+      }
+
       try {
         const searchParams = new URLSearchParams({
-          name: WEATHER_REGION,
+          name: weatherRegion,
           count: "1",
           language: "en",
           format: "json",
@@ -592,7 +841,15 @@ function useWeather() {
         );
         const locationData = await locationResponse.json();
         const location = locationData.results?.[0];
-        if (!location) return;
+        if (!location) {
+          setWeather({
+            ...fallbackWeather,
+            description: "Weather unavailable",
+            location: weatherRegion,
+            error: "Location not found",
+          });
+          return;
+        }
 
         const forecastParams = new URLSearchParams({
           latitude: String(location.latitude),
@@ -613,13 +870,14 @@ function useWeather() {
         const dailyTemps = forecastData.daily?.temperature_2m_max || [];
         const dailyCodes = forecastData.daily?.weather_code || [];
 
-        setWeather({
+        const nextWeather = {
           temperature: Math.round(
             forecastData.current?.temperature_2m ?? fallbackWeather.temperature,
           ),
           description: describeWeather(forecastData.current?.weather_code),
           code: forecastData.current?.weather_code ?? fallbackWeather.code,
           location: location.name,
+          error: "",
           forecast: dailyTimes.map((day, index) => ({
             day: formatForecastDay(day),
             temperature: Math.round(
@@ -629,10 +887,17 @@ function useWeather() {
             ),
             code: dailyCodes[index] ?? 0,
           })),
-        });
+        };
+
+        setWeather(nextWeather);
+        saveCachedWeather(weatherRegion, nextWeather);
       } catch (error) {
         if (error.name !== "AbortError") {
-          console.warn("Weather fetch failed", error);
+          setWeather((current) => ({
+            ...current,
+            description: "Weather unavailable",
+            error: "Weather fetch failed",
+          }));
         }
       }
     }
@@ -643,39 +908,64 @@ function useWeather() {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, []);
+  }, [weatherRegion]);
 
   return weather;
 }
 
 function App() {
+  const settings = useSettings();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [telemetry, setTelemetry] = useState(fallbackTelemetry);
   const [lastPacketAt, setLastPacketAt] = useState(0);
+  const [telemetryServerOnline, setTelemetryServerOnline] = useState(
+    Boolean(window.forzaDash?.onTelemetry),
+  );
   const smoothTelemetry = useSmoothedTelemetry(telemetry);
-  const weather = useWeather();
+  const weather = useWeather(settings);
+  const hardwareTemperature = useHardwareTemperature();
   const clock = useClock();
 
   useEffect(() => {
-    if (window.onyx?.onTelemetry) {
-      window.onyx
+    if (window.forzaDash?.onTelemetry) {
+      window.forzaDash
         .getLatestTelemetry?.()
-        .then((data) => data && setTelemetry(data));
-      return window.onyx.onTelemetry((data) => {
+        .then((data) => {
+          setTelemetryServerOnline(true);
+          if (data) {
+            setTelemetry(data);
+            setLastPacketAt(Date.now());
+          }
+        })
+        .catch(() => setTelemetryServerOnline(false));
+      return window.forzaDash.onTelemetry((data) => {
+        setTelemetryServerOnline(true);
         setTelemetry(data);
         setLastPacketAt(Date.now());
       });
     }
 
-    const socket = new WebSocket("ws://127.0.0.1:17878");
+    const telemetryPort =
+      settings.telemetryWsPort || DEFAULT_SETTINGS.telemetryWsPort;
+    const socket = new WebSocket(`ws://127.0.0.1:${telemetryPort}`);
+    socket.addEventListener("open", () => setTelemetryServerOnline(true));
     socket.addEventListener("message", (event) => {
       const data = JSON.parse(event.data);
+      setTelemetryServerOnline(true);
       setTelemetry(data);
       setLastPacketAt(Date.now());
     });
+    socket.addEventListener("error", () => setTelemetryServerOnline(false));
+    socket.addEventListener("close", () => setTelemetryServerOnline(false));
     return () => socket.close();
-  }, []);
+  }, [settings.telemetryWsPort]);
 
   const online = lastPacketAt && Date.now() - lastPacketAt < 2500;
+  const telemetryStatus = !telemetryServerOnline
+    ? "SERVER OFF"
+    : online
+      ? "ONLINE"
+      : "NO PACKETS";
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
   const speed = Math.round(smoothTelemetry.speedKmh);
   const stableGearRef = useRef(1);
@@ -684,7 +974,12 @@ function App() {
 
   return (
     <main className="dashboard">
-      <TopBar online={online} weather={weather} clock={clock} />
+      <TopBar
+        online={online}
+        telemetryStatus={telemetryStatus}
+        weather={weather}
+        clock={clock}
+      />
       <section className="main-grid">
         <TelemetryPanel telemetry={smoothTelemetry} gear={gear} />
         <CenterDial
@@ -692,18 +987,20 @@ function App() {
           speed={speed}
           gear={gear}
           rpmRatio={rpmRatio}
+          hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
-          <MusicPanel />
+          <MusicPanel onOpenSettings={() => setSettingsOpen(true)} />
           <WeatherPanel weather={weather} />
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </main>
   );
 }
 
-function TopBar({ online, weather, clock }) {
+function TopBar({ online, telemetryStatus, weather, clock }) {
   const [clockTime, meridiem] = clock.time.split(" ");
 
   return (
@@ -726,11 +1023,7 @@ function TopBar({ online, weather, clock }) {
         ))}
         <div className="assist wide">
           <Wifi size={23} className={online ? "online" : ""} />
-          <span>{online ? "ONLINE" : "WAITING"}</span>
-        </div>
-        <div className="assist wide player-count">
-          <i />
-          <span>12</span>
+          <span>{telemetryStatus}</span>
         </div>
       </div>
       <div className="time-weather">
@@ -780,7 +1073,10 @@ function TelemetryPanel({ telemetry, gear }) {
 
   const speedKmH = clamp(telemetry.speedKmh ?? 0, 0, 300);
   const distanceDelta = (speedKmH / 3600) * elapsedSeconds;
-  const fuelUsePerKm = 0.08 + clamp(telemetry.throttle ?? 0, 0, 100) * 0.0014 + clamp(telemetry.boostBar ?? 0, 0, 2) * 0.02;
+  const fuelUsePerKm =
+    0.08 +
+    clamp(telemetry.throttle ?? 0, 0, 100) * 0.0014 +
+    clamp(telemetry.boostBar ?? 0, 0, 2) * 0.02;
   fuelRef.current = fuelRef.current - distanceDelta * fuelUsePerKm;
   if (fuelRef.current <= 10) {
     fuelRef.current = 60 + Math.random() * 20;
@@ -800,13 +1096,22 @@ function TelemetryPanel({ telemetry, gear }) {
   const rows = [
     ["POWER", number(telemetry.powerHp), "HP"],
     ["TORQUE", number(telemetry.torqueNm), "NM"],
-    ["BOOST", number(telemetry.boostBar, 2), "BAR"],
+    ["BOOST", number(Math.abs(telemetry.boostBar), 2), "BAR"],
     ["THROTTLE", number(telemetry.throttle), "%"],
     ["BRAKE", number(telemetry.brake), "%"],
     ["CLUTCH", number(telemetry.clutch), "%"],
-    ["FUEL", formatValue(fuelPercent, "", 0), "%", `${number(fuelLiters, 1)} L`],
+    [
+      "FUEL",
+      formatValue(fuelPercent, "", 0),
+      "%",
+      `${number(fuelLiters, 1)} L`,
+    ],
     ["MAX SPEED", formatValue(maxSpeedRef.current, "", 0), "KM/H"],
-    [rangeOrDistanceLabel, formatValue(rangeOrDistanceValue, "", fuelRange != null ? 0 : 1), "KM"],
+    [
+      rangeOrDistanceLabel,
+      formatValue(rangeOrDistanceValue, "", fuelRange != null ? 0 : 1),
+      "KM",
+    ],
   ];
 
   return (
@@ -826,7 +1131,7 @@ function TelemetryPanel({ telemetry, gear }) {
             value={number(telemetry.speedKmh)}
             unit="KM/H"
           />
-          <MiniStat label="RPM" value={number(telemetry.rpm)} unit="RPM" />
+          <MiniStat label="RPM" value={number(telemetry.rpm)} />
         </div>
       </div>
       <div className="stat-grid">
@@ -838,7 +1143,9 @@ function TelemetryPanel({ telemetry, gear }) {
               {unit === "%" && <small>%</small>}
             </strong>
             <em>{sub || (unit !== "%" ? unit : "")}</em>
-            {(label === "THROTTLE" || label === "BRAKE" || label === "CLUTCH") && (
+            {(label === "THROTTLE" ||
+              label === "BRAKE" ||
+              label === "CLUTCH") && (
               <i
                 style={{
                   "--fill": `${label === "THROTTLE" ? telemetry.throttle : label === "BRAKE" ? telemetry.brake : telemetry.clutch}%`,
@@ -865,7 +1172,7 @@ function MiniStat({ label, value, unit }) {
   );
 }
 
-function CenterDial({ telemetry, speed, gear }) {
+function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
   const gearMaxSpeeds = {
     1: 65,
     2: 105,
@@ -882,21 +1189,48 @@ function CenterDial({ telemetry, speed, gear }) {
   const gearMaxSpeed = gearMaxSpeeds[gearNumber] ?? 340;
   const throttleRatio = clamp((telemetry.throttle || 0) / 100, 0, 1);
   const brakeRatio = clamp((telemetry.brake || 0) / 100, 0, 1);
-  const brakeBoostRatio = throttleRatio > 0.62 && brakeRatio > 0.28 ? throttleRatio * brakeRatio : 0;
-  const driveGearRatio = Number.isFinite(gearNumber) ? clamp(speed / gearMaxSpeed, 0, 1) : 0;
-  const gearSpeedRatio = brakeBoostRatio > 0 ? Math.max(driveGearRatio, 0.86 + brakeBoostRatio * 0.14) : driveGearRatio;
+  const brakeBoostRatio =
+    throttleRatio > 0.62 && brakeRatio > 0.28 ? throttleRatio * brakeRatio : 0;
+  const driveGearRatio = Number.isFinite(gearNumber)
+    ? clamp(speed / gearMaxSpeed, 0, 1)
+    : 0;
+  const gearSpeedRatio =
+    brakeBoostRatio > 0
+      ? Math.max(driveGearRatio, 0.86 + brakeBoostRatio * 0.14)
+      : driveGearRatio;
   const needleRatioRef = useRef(0);
   const needleTimeRef = useRef(Date.now());
   const needleNow = Date.now();
-  const needleElapsed = clamp((needleNow - needleTimeRef.current) / 1000, 0.016, 0.08);
+  const needleElapsed = clamp(
+    (needleNow - needleTimeRef.current) / 1000,
+    0.016,
+    0.08,
+  );
   needleTimeRef.current = needleNow;
-  needleRatioRef.current = smoothValue(needleRatioRef.current, gearSpeedRatio, needleElapsed, "speedKmh", 3.1);
-  const limiterIntensity = clamp((needleRatioRef.current - 0.88) / 0.12, 0, 1) * throttleRatio;
+  needleRatioRef.current = smoothValue(
+    needleRatioRef.current,
+    gearSpeedRatio,
+    needleElapsed,
+    "speedKmh",
+    3.1,
+  );
+  const limiterIntensity =
+    clamp((needleRatioRef.current - 0.88) / 0.12, 0, 1) * throttleRatio;
   const needleBounce =
     Math.max(limiterIntensity, brakeBoostRatio) *
     (Math.sin(needleNow / 58) * 2.4 + Math.sin(needleNow / 31) * 1.2);
   const needleAngle = 183 + needleRatioRef.current * 200 + needleBounce;
   const needleHot = needleRatioRef.current > 0.5;
+  const forceFullSpeedGlow = false;
+  const speedGlowProgress = forceFullSpeedGlow
+    ? 100
+    : clamp(needleRatioRef.current * 100, 0, 100);
+  const speedGlowHot = forceFullSpeedGlow
+    ? 1
+    : clamp((needleRatioRef.current - 0.62) / 0.38, 0, 1);
+  const speedGlowVisible = forceFullSpeedGlow
+    ? 1
+    : clamp((needleRatioRef.current - 0.018) / 0.04, 0, 1);
   const lastGForceRef = useRef({
     at: Date.now(),
     speedKmh: telemetry.speedKmh || 0,
@@ -907,7 +1241,8 @@ function CenterDial({ telemetry, speed, gear }) {
     9.80665;
   const gNow = Date.now();
   const gElapsed = clamp((gNow - lastGForceRef.current.at) / 1000, 0.016, 0.25);
-  const speedDeltaMps = ((telemetry.speedKmh || 0) - lastGForceRef.current.speedKmh) / 3.6;
+  const speedDeltaMps =
+    ((telemetry.speedKmh || 0) - lastGForceRef.current.speedKmh) / 3.6;
   const derivedGForce = Math.abs(speedDeltaMps / gElapsed) / 9.80665;
   const gTarget = packetGForce > 0.015 ? packetGForce : derivedGForce;
   lastGForceRef.current.value = smoothValue(
@@ -937,25 +1272,79 @@ function CenterDial({ telemetry, speed, gear }) {
   const derivedTempTarget = clamp(
     82 +
       clamp(telemetry.throttle || 0, 0, 100) * 0.14 +
-      clamp((telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 10000, 1), 0, 1) * 18 +
+      clamp(
+        (telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 10000, 1),
+        0,
+        1,
+      ) *
+        18 +
       clamp(telemetry.boostBar || 0, 0, 2) * 2 -
       clamp(telemetry.speedKmh || 0, 0, 260) * 0.025,
     78,
     118,
   );
-  const tempTarget = Number.isFinite(realTempValue) ? realTempValue : derivedTempTarget;
+  const hardwareTempValue = Number(hardwareTemperature?.temperature);
+  const tempTarget = validTemperature(hardwareTempValue)
+    ? hardwareTempValue
+    : validTemperature(realTempValue)
+      ? realTempValue
+      : derivedTempTarget;
+  const tempSource = validTemperature(hardwareTempValue)
+    ? hardwareTemperature.source || "hardware"
+    : validTemperature(realTempValue)
+      ? "telemetry"
+      : "fallback";
   const tempRef = useRef(tempTarget);
   const tempTimeRef = useRef(Date.now());
   const tempElapsed = clamp((Date.now() - tempTimeRef.current) / 1000, 0, 1);
   tempTimeRef.current = Date.now();
-  tempRef.current = tempRef.current + clamp(tempTarget - tempRef.current, -3 * tempElapsed, 3 * tempElapsed);
+  if (!validTemperature(tempRef.current)) {
+    tempRef.current = tempTarget;
+  }
+  tempRef.current =
+    tempRef.current +
+    clamp(tempTarget - tempRef.current, -3 * tempElapsed, 3 * tempElapsed);
   const tempValue = Math.round(tempRef.current);
   const tempRatio = clamp(tempValue / 140, 0, 1);
-
   return (
     <section className="dial-wrap">
       <div className="dial">
         <img className="speedometer-bg" src={speedometerBg} alt="" />
+        <svg
+          className="speed-arc-glow"
+          viewBox="0 0 100 100"
+          aria-hidden="true"
+          style={{
+            "--speed-glow": speedGlowProgress,
+            "--speed-hot": speedGlowHot,
+            "--speed-visible": speedGlowVisible,
+          }}
+        >
+          <defs>
+            <linearGradient
+              id="speedArcGradient"
+              x1="4%"
+              y1="54%"
+              x2="93%"
+              y2="68%"
+            >
+              <stop offset="0%" stopColor="#13d9ff" />
+              <stop offset="55%" stopColor="#1486ff" />
+              <stop offset="78%" stopColor="#ff2a4a" />
+              <stop offset="100%" stopColor="#ff1732" />
+            </linearGradient>
+          </defs>
+          <path
+            className="speed-arc-glow__track"
+            d="M5 53 A45 45 0 1 1 91 68"
+            pathLength="100"
+          />
+          <path
+            className="speed-arc-glow__value"
+            d="M5 53 A45 45 0 1 1 91 68"
+            pathLength="100"
+          />
+        </svg>
         <div
           className={`speed-needle ${needleHot ? "hot" : ""}`}
           style={{ transform: `rotate(${needleAngle}deg)` }}
@@ -999,8 +1388,9 @@ function CenterDial({ telemetry, speed, gear }) {
   );
 }
 
-function MusicPanel() {
-  const [configured] = useState(isSpotifyConfigured());
+function MusicPanel({ onOpenSettings }) {
+  const settings = useSettings();
+  const configured = isSpotifyConfigured();
   const [playback, setPlayback] = useState(null);
   const [displayProgress, setDisplayProgress] = useState(0);
   const [progressAnchor, setProgressAnchor] = useState({
@@ -1010,18 +1400,23 @@ function MusicPanel() {
   });
   const [spotifyReady, setSpotifyReady] = useState(false);
   const [spotifyError, setSpotifyError] = useState("");
+  const [shuffleEnabled, setShuffleEnabled] = useState(false);
+  const [repeatMode, setRepeatMode] = useState("off");
 
   async function refreshPlayback() {
     if (!configured) return;
     const result = await getPlaybackState();
     if (result.status === 401) {
       setSpotifyReady(false);
+      setSpotifyError(
+        configured ? "Spotify login required" : "Spotify not configured",
+      );
       return;
     }
     if (result.status === 204) {
       setSpotifyReady(true);
       setPlayback(null);
-      setSpotifyError("No active Spotify device");
+      setSpotifyError("Open Spotify on a device to control playback");
       return;
     }
     if (result.status >= 400) {
@@ -1031,6 +1426,8 @@ function MusicPanel() {
     setSpotifyReady(true);
     setSpotifyError("");
     setPlayback(result.data);
+    setShuffleEnabled(Boolean(result.data?.shuffle_state));
+    setRepeatMode(result.data?.repeat_state === "off" ? "off" : "track");
     setProgressAnchor({
       progress: result.data?.progress_ms || 0,
       at: Date.now(),
@@ -1050,7 +1447,7 @@ function MusicPanel() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [settings.spotifyClientId]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -1068,6 +1465,15 @@ function MusicPanel() {
   }, [playback?.item?.duration_ms, progressAnchor]);
 
   async function runCommand(command) {
+    if (!spotifyReady) {
+      const deviceReady = await ensureSpotifyDevice();
+      if (!deviceReady) {
+        setSpotifyError("No Spotify playback device found");
+        return;
+      }
+      setSpotifyReady(true);
+    }
+
     const action =
       command === "toggle"
         ? playback?.is_playing
@@ -1082,6 +1488,52 @@ function MusicPanel() {
     setTimeout(refreshPlayback, 500);
   }
 
+  async function toggleShuffle() {
+    if (!spotifyReady) {
+      const deviceReady = await ensureSpotifyDevice();
+      if (!deviceReady) {
+        setSpotifyError("No Spotify playback device found");
+        return;
+      }
+      setSpotifyReady(true);
+    }
+
+    const nextShuffle = !shuffleEnabled;
+    setShuffleEnabled(nextShuffle);
+    const result = await setSpotifyShuffle(nextShuffle);
+    if (result.status >= 400 && result.status !== 204) {
+      setShuffleEnabled(!nextShuffle);
+      setSpotifyError(
+        result.data?.error?.message || "Spotify shuffle change failed",
+      );
+      return;
+    }
+    setTimeout(refreshPlayback, 500);
+  }
+
+  async function cycleRepeat() {
+    if (!spotifyReady) {
+      const deviceReady = await ensureSpotifyDevice();
+      if (!deviceReady) {
+        setSpotifyError("No Spotify playback device found");
+        return;
+      }
+      setSpotifyReady(true);
+    }
+
+    const nextMode = repeatMode === "off" ? "track" : "off";
+    setRepeatMode(nextMode);
+    const result = await setSpotifyRepeat(nextMode);
+    if (result.status >= 400 && result.status !== 204) {
+      setRepeatMode(repeatMode);
+      setSpotifyError(
+        result.data?.error?.message || "Spotify repeat change failed",
+      );
+      return;
+    }
+    setTimeout(refreshPlayback, 500);
+  }
+
   const track = playback?.item;
   const title = track?.name || "Connect Spotify";
   const artist =
@@ -1089,7 +1541,7 @@ function MusicPanel() {
     "Login to show current track";
   const album =
     track?.album?.name ||
-    (configured ? "Playback controls ready" : "Add Spotify Client ID");
+    (configured ? "Playback controls ready" : "Spotify login unavailable");
   const image = track?.album?.images?.[0]?.url;
   const duration = track?.duration_ms || 200000;
   const progress = displayProgress || playback?.progress_ms || 0;
@@ -1098,9 +1550,18 @@ function MusicPanel() {
   return (
     <section className="glass-panel music-panel">
       <div className="panel-title">
-        <Music2 size={25} />
+        <img className="spotify-logo" src={spotifyLogo} alt="" />
         <h2>SPOTIFY</h2>
-        <span>•••</span>
+        <button
+          className="settings-trigger"
+          type="button"
+          aria-label="Open settings"
+          onClick={onOpenSettings}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </div>
       <div className="track-row">
         <div
@@ -1127,7 +1588,15 @@ function MusicPanel() {
         <i />
       </div>
       <div className="music-controls">
-        <Shuffle className="side-control" />
+        <button
+          type="button"
+          className={`side-control ${shuffleEnabled ? "active" : ""}`}
+          aria-label="Toggle shuffle"
+          title={shuffleEnabled ? "Shuffle on" : "Shuffle off"}
+          onClick={toggleShuffle}
+        >
+          <Shuffle />
+        </button>
         <button
           type="button"
           aria-label="Previous track"
@@ -1158,20 +1627,180 @@ function MusicPanel() {
         >
           <SkipForward />
         </button>
-        <Repeat className="side-control" />
+        <button
+          type="button"
+          className={`side-control ${repeatMode !== "off" ? "active" : ""}`}
+          aria-label="Toggle repeat"
+          title={repeatMode === "track" ? "Repeat one" : "Repeat off"}
+          onClick={cycleRepeat}
+        >
+          <Repeat />
+        </button>
       </div>
     </section>
+  );
+}
+
+function SettingsModal({ onClose }) {
+  const settings = useSettings();
+  const [draft, setDraft] = useState(settings);
+  const [saved, setSaved] = useState(false);
+  const spotifyConfigured = Boolean(draft.spotifyClientId?.trim());
+  const spotifyLoggedIn = hasSpotifyLogin();
+  const maskedSpotifyClientId = draft.spotifyClientId
+    ? `${draft.spotifyClientId.slice(1, 5)}XXXXXXXXXXXXX`
+    : "";
+
+  useEffect(() => {
+    setDraft(settings);
+  }, [settings]);
+
+  function updateField(key, value) {
+    setSaved(false);
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function save() {
+    saveSettings({
+      ...DEFAULT_SETTINGS,
+      ...draft,
+      weatherRegion:
+        draft.weatherRegion.trim() || DEFAULT_SETTINGS.weatherRegion,
+      dashboardPort:
+        draft.dashboardPort.trim() || DEFAULT_SETTINGS.dashboardPort,
+      forzaUdpPort: draft.forzaUdpPort.trim() || DEFAULT_SETTINGS.forzaUdpPort,
+      forzaUdpForwardPort:
+        draft.forzaUdpForwardPort.trim() ||
+        DEFAULT_SETTINGS.forzaUdpForwardPort,
+      telemetryWsPort:
+        draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
+      spotifyClientId: draft.spotifyClientId.trim(),
+    });
+    setSaved(true);
+  }
+
+  function logout() {
+    logoutSpotify();
+    window.dispatchEvent(
+      new CustomEvent("forzadash:settings", { detail: readSettings() }),
+    );
+  }
+
+  function resetDefaults() {
+    setDraft(DEFAULT_SETTINGS);
+    saveSettings(DEFAULT_SETTINGS);
+    setSaved(true);
+  }
+
+  return (
+    <div
+      className="settings-backdrop"
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="ForzaDash settings"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="settings-header">
+          <h2>SETTINGS</h2>
+          <button type="button" onClick={onClose} aria-label="Close settings">
+            x
+          </button>
+        </div>
+        <div className="settings-grid">
+          <label>
+            <span>Weather Region</span>
+            <input
+              value={draft.weatherRegion}
+              onChange={(event) =>
+                updateField("weatherRegion", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>Dashboard Port</span>
+            <input
+              inputMode="numeric"
+              value={draft.dashboardPort}
+              onChange={(event) =>
+                updateField("dashboardPort", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>Forza UDP Port</span>
+            <input
+              inputMode="numeric"
+              value={draft.forzaUdpPort}
+              onChange={(event) =>
+                updateField("forzaUdpPort", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>UDP Forward Port</span>
+            <input
+              inputMode="numeric"
+              value={draft.forzaUdpForwardPort}
+              onChange={(event) =>
+                updateField("forzaUdpForwardPort", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>Telemetry WS Port</span>
+            <input
+              inputMode="numeric"
+              value={draft.telemetryWsPort}
+              onChange={(event) =>
+                updateField("telemetryWsPort", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>Spotify Client ID</span>
+            <input value={maskedSpotifyClientId} readOnly />
+          </label>
+        </div>
+        <p className="settings-note">
+          {saved
+            ? "Saved. Port changes apply after restarting the local server/app."
+            : "Port changes apply after restarting the local server/app."}
+        </p>
+        <div className="settings-actions">
+          <button type="button" onClick={resetDefaults}>
+            Reset Defaults
+          </button>
+          <button
+            type="button"
+            onClick={spotifyLoggedIn ? logout : loginSpotify}
+            disabled={!spotifyConfigured}
+          >
+            {spotifyLoggedIn ? "Logout Spotify" : "Login Spotify"}
+          </button>
+          <button className="primary-settings" type="button" onClick={save}>
+            Save Settings
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
 function WeatherPanel({ weather }) {
   return (
     <section className="glass-panel weather-panel">
-      <div>
+      <div className="weather-icon-block">
         <h2>WEATHER</h2>
-        <WeatherIcon code={weather.code} size={78} />
+        <div className="weather-icon-stage">
+          <WeatherIcon code={weather.code} size={88} />
+        </div>
       </div>
-      <div className="weather-now">
+      <div className={`weather-now ${weather.error ? "weather-error" : ""}`}>
         <strong>{weather.temperature}°C</strong>
         <span>{weather.description}</span>
         <em>{weather.location}</em>
@@ -1190,10 +1819,8 @@ function WeatherPanel({ weather }) {
 }
 
 function BottomSystems({ telemetry }) {
-  const rawTempValues = getTireTempValues(telemetry);
-  const rawSuspensionValues = getSuspensionValues(telemetry);
-  const lastTireTempsRef = useRef(rawTempValues || [80, 80, 80, 80]);
-  const lastSuspensionRef = useRef(rawSuspensionValues || [2.3, 2.4, 2.1, 2.2]);
+  const lastTireTempsRef = useRef([52, 52, 50, 50]);
+  const lastSuspensionRef = useRef([2.2, 2.2, 2.0, 2.0]);
   const lastTimestampRef = useRef(Date.now());
 
   const now = Date.now();
@@ -1201,41 +1828,23 @@ function BottomSystems({ telemetry }) {
   lastTimestampRef.current = now;
 
   const tireTemps = (() => {
-    if (rawTempValues) {
-      lastTireTempsRef.current = rawTempValues;
-      return rawTempValues.map(formatTireTemp);
-    }
-
-    const currentTargets = deriveEstimatedTireTemps(telemetry);
-    const maxDelta = clamp(0.3 * elapsedSeconds + 0.2, 0.15, 0.6);
-
-    const smoothed = lastTireTempsRef.current.map((previous, index) => {
-      const target = currentTargets[index] ?? previous;
-      const difference = target - previous;
-      return previous + clamp(difference, -maxDelta, maxDelta);
-    });
-
-    lastTireTempsRef.current = smoothed;
-    return smoothed.map(formatTireTemp);
+    const modeled = updateModeledTireTemps(
+      telemetry,
+      lastTireTempsRef.current,
+      elapsedSeconds,
+    );
+    lastTireTempsRef.current = modeled;
+    return modeled.map(formatTireTemp);
   })();
 
   const suspensionTravel = (() => {
-    if (rawSuspensionValues) {
-      lastSuspensionRef.current = rawSuspensionValues;
-      return rawSuspensionValues.map(formatSuspensionTravel);
-    }
-
-    const currentTargets = deriveEstimatedSuspension(telemetry);
-    const maxDelta = clamp(0.12 * elapsedSeconds + 0.08, 0.05, 0.25);
-
-    const smoothed = lastSuspensionRef.current.map((previous, index) => {
-      const target = currentTargets[index] ?? previous;
-      const difference = target - previous;
-      return previous + clamp(difference, -maxDelta, maxDelta);
-    });
-
-    lastSuspensionRef.current = smoothed;
-    return smoothed.map(formatSuspensionTravel);
+    const modeled = updateModeledSuspensionTravel(
+      telemetry,
+      lastSuspensionRef.current,
+      elapsedSeconds,
+    );
+    lastSuspensionRef.current = modeled;
+    return modeled.map(formatSuspensionTravel);
   })();
 
   return (
@@ -1304,7 +1913,9 @@ function PowerGraph({ telemetry }) {
   }, [telemetry.powerHp, telemetry.torqueNm]);
 
   const now = Date.now();
-  const visibleSamples = samples.filter((sample) => now - sample.at <= graphWindowMs);
+  const visibleSamples = samples.filter(
+    (sample) => now - sample.at <= graphWindowMs,
+  );
   const maxValue = Math.max(
     100,
     600,
@@ -1317,7 +1928,11 @@ function PowerGraph({ telemetry }) {
 
     return visibleSamples
       .map((sample, index) => {
-        const x = clamp(100 - ((now - sample.at) / graphWindowMs) * 100, 0, 100);
+        const x = clamp(
+          100 - ((now - sample.at) / graphWindowMs) * 100,
+          0,
+          100,
+        );
         const y = clamp(100 - (sample[key] / scaleMax) * 100, 0, 100);
         return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
       })
@@ -1326,7 +1941,12 @@ function PowerGraph({ telemetry }) {
 
   const torquePath = toLivePath("torque");
   const powerPath = toLivePath("power");
-  const yLabels = [scaleMax, Math.round(scaleMax * 0.67), Math.round(scaleMax * 0.33), 0];
+  const yLabels = [
+    scaleMax,
+    Math.round(scaleMax * 0.67),
+    Math.round(scaleMax * 0.33),
+    0,
+  ];
 
   return (
     <div className="system-card power-graph-card">
@@ -1335,7 +1955,12 @@ function PowerGraph({ telemetry }) {
         <span className="legend torque">TORQUE (NM)</span>
         <span className="legend power">POWER (HP)</span>
       </div>
-      <svg className="power-graph" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <svg
+        className="power-graph"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
         <g className="graph-grid">
           {[20, 40, 60, 80].map((y) => (
             <line key={`h-${y}`} x1="0" y1={y} x2="100" y2={y} />

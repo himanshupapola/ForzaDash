@@ -14,6 +14,7 @@
 
 * {
   box-sizing: border-box;
+  user-select: none;
 }
 
 body {
@@ -98,8 +99,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: clamp(16px, 1.25vw, 24px);
-  padding: 0 clamp(30px, 2.4vw, 48px);
+  gap: 0;
+  padding: 0 clamp(18px, 1.35vw, 28px);
   border: 1px solid rgba(35, 151, 205, 0.1);
   border-right: 0;
   border-radius: 8px 0 0 8px;
@@ -114,17 +115,18 @@ button {
 
 .forza-logo {
   display: block;
-  width: clamp(86px, 6.2vw, 128px);
-  max-height: 54%;
+  width: clamp(98px, 6.8vw, 138px);
+  max-height: 64%;
   object-fit: contain;
   object-position: left center;
   filter: drop-shadow(0 0 9px rgba(255, 255, 255, 0.18));
+  margin-right: clamp(-16px, -0.8vw, -9px);
 }
 
 .brand-lines {
   display: grid;
   align-content: center;
-  gap: 2px;
+  gap: 3px;
   font-family: Rajdhani, sans-serif;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -133,12 +135,12 @@ button {
 }
 
 .brand-lines strong {
-  font-size: clamp(18px, 1.35vw, 28px);
+  font-size: clamp(17px, 1.22vw, 25px);
   line-height: 0.88;
 }
 
 .brand-lines span {
-  font-size: clamp(28px, 2.05vw, 44px);
+  font-size: clamp(27px, 1.9vw, 40px);
   line-height: 0.84;
   font-style: italic;
   letter-spacing: 0.03em;
@@ -164,8 +166,13 @@ button {
 }
 
 .assist-row {
-  justify-content: center;
-  gap: clamp(24px, 2vw, 48px);
+  display: grid;
+  grid-template-columns: minmax(76px, 1fr) minmax(76px, 1fr) minmax(76px, 1fr) minmax(
+      128px,
+      1.2fr
+    );
+  justify-items: center;
+  gap: 0;
   height: 100%;
   padding-left: clamp(132px, 8vw, 178px);
   padding-right: clamp(118px, 7vw, 160px);
@@ -194,7 +201,8 @@ button {
 }
 
 .assist {
-  min-width: clamp(90px, 5.5vw, 118px);
+  width: 100%;
+  min-width: 0;
   height: 54%;
   display: grid;
   grid-template-columns: 1fr;
@@ -235,30 +243,21 @@ button {
 
 .assist.wide {
   grid-auto-flow: column;
-  grid-template-columns: auto auto auto;
+  grid-template-columns: auto auto;
   grid-template-rows: 1fr;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: clamp(12px, 0.85vw, 18px);
+  padding-left: clamp(18px, 1.4vw, 30px);
+  padding-right: clamp(8px, 0.8vw, 18px);
+  transform: none;
 }
 
 .assist.wide span {
   grid-column: auto;
   justify-self: center;
-}
-
-.assist.wide i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #00d084;
-  box-shadow: 0 0 10px #00d084;
-}
-
-.player-count {
-  min-width: 52px;
-  border-left: 0;
-  gap: 8px;
+  min-width: clamp(78px, 5.4vw, 112px);
+  text-align: left;
 }
 
 .time-weather {
@@ -502,7 +501,8 @@ h3 {
       (
           100dvh - var(--hud-top-row) - var(--hud-bottom-row) -
             (var(--hud-gap) * 2) - (var(--hud-padding) * 2)
-        ) * 1.06
+        ) *
+        1.06
     )
   );
   aspect-ratio: 1;
@@ -524,16 +524,56 @@ h3 {
   user-select: none;
 }
 
+.speed-arc-glow {
+  --speed-glow: 0;
+  --speed-hot: 0;
+  --speed-visible: 0;
+  position: absolute;
+  inset: -6.2% -3.4% -2.6% -3.8%;
+  width: 98%;
+  height: 110%;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+  mix-blend-mode: normal;
+  transform: translate(0.8%, -2.6%);
+}
+
+.speed-arc-glow__track,
+.speed-arc-glow__value {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.speed-arc-glow__track {
+  stroke: rgba(74, 104, 122, 0.18);
+  stroke-width: 0.85;
+  filter: none;
+}
+
+.speed-arc-glow__value {
+  stroke: url("#speedArcGradient");
+  stroke-width: 1.35;
+  stroke-dasharray: calc(var(--speed-glow) * 1) 100;
+  filter: none;
+  opacity: calc(var(--speed-visible) * 0.62);
+}
+
 .speed-needle {
   position: absolute;
   left: 46%;
   top: 50%;
   z-index: 2;
-  width: 34%;
+  width: 31%;
   height: 3px;
   transform-origin: 0 50%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #18d7ff, rgba(255, 255, 255, 0.92) 22%, #18d7ff);
+  background: linear-gradient(
+    90deg,
+    #18d7ff,
+    rgba(255, 255, 255, 0.92) 22%,
+    #18d7ff
+  );
   box-shadow:
     0 0 10px rgba(24, 215, 255, 0.58),
     0 0 18px rgba(24, 215, 255, 0.36);
@@ -541,7 +581,12 @@ h3 {
 }
 
 .speed-needle.hot {
-  background: linear-gradient(90deg, #ff263d, rgba(255, 255, 255, 0.92) 22%, #ff263d);
+  background: linear-gradient(
+    90deg,
+    #ff263d,
+    rgba(255, 255, 255, 0.92) 22%,
+    #ff263d
+  );
   box-shadow:
     0 0 10px rgba(255, 38, 61, 0.58),
     0 0 18px rgba(255, 38, 61, 0.36);
@@ -556,8 +601,12 @@ h3 {
   height: 14px;
   transform: translateY(-50%);
   border-radius: 50%;
-  background:
-    radial-gradient(circle, #d8e4ea 0 14%, #151b22 15% 48%, #030609 49% 100%);
+  background: radial-gradient(
+    circle,
+    #d8e4ea 0 14%,
+    #151b22 15% 48%,
+    #030609 49% 100%
+  );
   border: 1px solid rgba(0, 0, 0, 0.9);
   box-shadow:
     0 0 0 2px rgba(5, 8, 12, 0.92),
@@ -696,7 +745,7 @@ h3 {
   height: 100%;
   place-items: center;
   font-size: clamp(22px, 1.65vw, 32px);
-  transform: translateY(3%);
+  transform: translateY(4%);
 }
 
 .lower-g-meter span,
@@ -719,6 +768,7 @@ h3 {
   display: grid;
   justify-items: center;
   gap: 4px;
+  transform: translateX(0px) translateY(-8%);
 }
 
 .lower-gear strong {
@@ -740,7 +790,7 @@ h3 {
     rgba(2, 13, 22, 0.72) 18% 82%,
     transparent
   );
-  transform: translateX(-12px);
+  transform: translateX(-23px);
 }
 
 .lower-temp span {
@@ -799,7 +849,7 @@ h3 {
       transparent 33% 60%,
       rgba(82, 170, 235, 0.12) 61% 62%,
       transparent 63%
-  );
+    );
   box-shadow:
     inset 0 0 18px rgba(42, 160, 235, 0.16),
     0 0 16px rgba(42, 160, 235, 0.1);
@@ -874,12 +924,174 @@ h3 {
   font-size: clamp(20px, 1.25vw, 24px);
 }
 
-.panel-title span {
+.spotify-logo {
+  width: clamp(24px, 1.55vw, 30px);
+  height: clamp(24px, 1.55vw, 30px);
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 0 8px rgba(0, 208, 132, 0.32));
+  user-select: none;
+  pointer-events: none;
+}
+
+.settings-trigger {
   margin-left: auto;
+  width: 44px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
   color: #b6c1c8;
+  background: transparent;
+  padding: 0 4px 0 0;
+}
+
+.settings-trigger span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: 24px;
+  background: rgba(0, 2, 4, 0.6);
+  backdrop-filter: blur(9px);
+}
+
+.settings-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid rgba(43, 192, 255, 0.16);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(2, 8, 12, 0.98), rgba(0, 4, 7, 0.95));
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.58),
+    inset 0 0 28px rgba(21, 121, 180, 0.05);
+  padding: 18px;
+}
+
+.settings-header,
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-header {
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-header h2 {
   font-size: 24px;
-  padding-right: 4px;
-  white-space: nowrap;
+}
+
+.settings-header button,
+.settings-actions button {
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #dceaf4;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px 0 10px;
+}
+
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-grid label span,
+.settings-note {
+  color: #8e99a3;
+  font-size: 13px;
+}
+
+.settings-grid input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid rgba(43, 192, 255, 0.12);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #eaf4fa;
+  background: rgba(0, 7, 12, 0.72);
+  outline: none;
+  user-select: text;
+}
+
+.settings-grid input:focus {
+  border-color: rgba(37, 200, 255, 0.42);
+}
+
+.settings-grid input[readonly] {
+  color: #9aa6ae;
+  background: rgba(0, 7, 12, 0.42);
+  cursor: default;
+}
+
+.settings-note {
+  margin: 0 0 16px;
+}
+
+.settings-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.settings-actions button:disabled {
+  opacity: 0.45;
+}
+
+.settings-actions .primary-settings {
+  color: #061017;
+  background: #25c8ff;
+}
+
+@media (max-width: 680px) {
+  .settings-backdrop {
+    padding: 12px;
+  }
+
+  .settings-modal {
+    width: min(420px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    padding: 14px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .settings-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions button {
+    width: 100%;
+  }
 }
 
 .track-row {
@@ -914,8 +1126,8 @@ h3 {
 .track-row strong {
   display: block;
   color: white;
-  font-size: clamp(24px, 1.5vw, 31px);
-  margin-bottom: clamp(12px, 1.2vh, 18px);
+  font-size: clamp(21px, 1.32vw, 28px);
+  margin-bottom: clamp(10px, 1vh, 15px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -926,8 +1138,8 @@ h3 {
   display: block;
   color: #8e99a3;
   font-style: normal;
-  font-size: clamp(17px, 1.1vw, 21px);
-  margin-top: clamp(8px, 1vh, 12px);
+  font-size: clamp(15px, 0.95vw, 18px);
+  margin-top: clamp(7px, 0.85vh, 10px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1041,19 +1253,49 @@ h3 {
   width: clamp(20px, 1.25vw, 24px);
   height: clamp(20px, 1.25vw, 24px);
   color: #8e99a3;
+  transition:
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.music-controls .side-control:hover {
+  color: #dfe9f2;
+  transform: translateY(-1px);
+}
+
+.music-controls .side-control.active {
+  color: #54bfb1;
+  background: rgba(84, 191, 177, 0.12);
+  border-radius: 999px;
+  box-shadow: 0 0 14px rgba(84, 191, 177, 0.16);
 }
 
 .weather-panel {
-  padding: clamp(16px, 1.3vw, 22px) clamp(18px, 1.5vw, 28px);
+  padding: clamp(18px, 1.45vw, 26px) clamp(22px, 1.8vw, 34px);
   display: grid;
-  grid-template-columns: minmax(86px, 0.65fr) minmax(112px, 0.85fr) minmax(
-      140px,
-      1fr
+  grid-template-columns: minmax(126px, 0.75fr) minmax(130px, 0.85fr) minmax(
+      154px,
+      1.05fr
     );
-  gap: clamp(14px, 1.2vw, 22px);
+  gap: clamp(18px, 1.6vw, 30px);
   align-items: center;
   min-height: 0;
   overflow: hidden;
+}
+
+.weather-icon-block {
+  display: grid;
+  align-content: center;
+  gap: clamp(8px, 1vh, 14px);
+  min-width: 0;
+}
+
+.weather-icon-stage {
+  width: clamp(92px, 6.8vw, 124px);
+  aspect-ratio: 1.25;
+  display: grid;
+  place-items: center;
+  overflow: visible;
 }
 
 .rain-cloud-icon {
@@ -1100,6 +1342,7 @@ h3 {
 .cloud-weather-icon__cloud {
   stroke: #dbe7ef;
   stroke-width: 4.2;
+  fill: rgba(219, 231, 239, 0.02);
 }
 
 .forecast .rain-cloud-icon__cloud {
@@ -1119,7 +1362,7 @@ h3 {
 }
 
 .weather-panel h2 {
-  margin-bottom: clamp(8px, 1vh, 12px);
+  margin-bottom: 0;
 }
 
 .weather-now strong {
@@ -1141,6 +1384,10 @@ h3 {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.weather-now.weather-error span {
+  color: #ff6677;
 }
 
 .forecast span {
@@ -1277,8 +1524,16 @@ h3 {
   inset: 10px;
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 45%, rgba(112, 68, 255, 0.18), transparent 34%),
-    radial-gradient(circle at 50% 80%, rgba(20, 214, 255, 0.08), transparent 42%);
+    radial-gradient(
+      circle at 50% 45%,
+      rgba(112, 68, 255, 0.18),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 50% 80%,
+      rgba(20, 214, 255, 0.08),
+      transparent 42%
+    );
   opacity: 0.9;
   pointer-events: none;
 }
@@ -1459,14 +1714,12 @@ h3 {
 }
 
 .torque-line.active-curve {
-  filter:
-    drop-shadow(0 0 3px rgba(18, 159, 255, 0.75))
+  filter: drop-shadow(0 0 3px rgba(18, 159, 255, 0.75))
     drop-shadow(0 0 8px rgba(18, 159, 255, 0.28));
 }
 
 .power-line.active-curve {
-  filter:
-    drop-shadow(0 0 3px rgba(255, 38, 61, 0.78))
+  filter: drop-shadow(0 0 3px rgba(255, 38, 61, 0.78))
     drop-shadow(0 0 9px rgba(255, 38, 61, 0.3));
 }
 
@@ -1912,15 +2165,15 @@ h3 {
 
 @media (max-height: 720px) and (min-width: 821px) {
   body {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .dashboard {
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow: visible;
-    grid-template-rows: auto auto auto;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    --hud-top-row: clamp(64px, 9vh, 78px);
+    --hud-bottom-row: clamp(112px, 17vh, 150px);
   }
 
   .main-grid,
@@ -1929,18 +2182,94 @@ h3 {
   .music-panel,
   .weather-panel,
   .bottom-systems {
-    overflow: visible;
+    overflow: hidden;
   }
 
   .top-bar {
-    min-height: 74px;
+    min-height: 0;
   }
 
   .main-grid {
-    min-height: 520px;
+    min-height: 0;
   }
 
   .bottom-systems {
-    min-height: 150px;
+    min-height: 0;
+  }
+
+  .system-card {
+    padding: clamp(7px, 1vh, 10px) clamp(10px, 0.9vw, 14px);
+  }
+
+  .system-card h3 {
+    font-size: clamp(11px, 0.72vw, 13px);
+    margin-bottom: clamp(5px, 0.7vh, 8px);
+  }
+
+  .car-metrics {
+    height: calc(100% - 20px);
+    grid-template-columns: minmax(38px, 1fr) clamp(46px, 3.9vw, 66px) minmax(
+        38px,
+        1fr
+      );
+    gap: clamp(4px, 0.55vw, 7px);
+  }
+
+  .car-metrics span {
+    font-size: clamp(17px, 1.35vw, 23px);
+  }
+
+  .mini-car {
+    width: clamp(30px, 2.4vw, 42px);
+    height: clamp(56px, 7.4vh, 84px);
+  }
+
+  .car-asset {
+    width: min(100%, clamp(44px, 3.5vw, 64px));
+    height: min(100%, clamp(76px, 10vh, 118px));
+  }
+
+  .input-card {
+    gap: clamp(2px, 0.45vh, 5px);
+  }
+
+  .input-card p {
+    grid-template-columns: 68px minmax(0, 1fr) 36px;
+    gap: 8px;
+  }
+
+  .input-card span,
+  .legend,
+  .graph-axis {
+    font-size: clamp(9px, 0.65vw, 11px);
+  }
+
+  .input-card strong {
+    font-size: clamp(16px, 1.1vw, 21px);
+  }
+
+  .power-graph-card {
+    padding: clamp(7px, 0.8vh, 10px) clamp(12px, 1vw, 18px)
+      clamp(6px, 0.7vh, 9px);
+    gap: 4px;
+  }
+
+  .power-graph-title {
+    gap: 8px;
+  }
+
+  .power-graph {
+    min-height: 48px;
+    width: calc(100% - 34px);
+  }
+
+  .x-axis {
+    width: calc(100% - 34px);
+  }
+
+  .y-axis-left,
+  .y-axis-right {
+    top: 32px;
+    bottom: 32px;
   }
 }

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("onyx", {
+contextBridge.exposeInMainWorld("forzaDash", {
   getLatestTelemetry: () => ipcRenderer.invoke("telemetry:getLatest"),
   onTelemetry: (callback) => {
     const listener = (_event, payload) => callback(payload);

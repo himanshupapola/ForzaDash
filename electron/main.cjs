@@ -1,344 +1,249 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
-const dgram = require("node:dgram");
+const { app, Menu, shell, Tray } = require("electron");
+const { execFile } = require("node:child_process");
+const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 
-const UDP_HOST = "0.0.0.0";
-const UDP_PORT = 1234;
+const DEFAULT_DASHBOARD_PORT = 5173;
 
-let mainWindow;
-let udpSocket;
-let rawCount = 0;
-let parsedCount = 0;
-let lastSender = "-";
-let latestTelemetry = null;
-let lastFuelTelemetry = null;
-const ASSUMED_FUEL_TANK_LITERS = 60;
+let tray = null;
+let webServer = null;
+let dashboardUrl = null;
 
-function readFloat(data, offset) {
-  return data.readFloatLE(offset);
+const singleInstanceLock = app.requestSingleInstanceLock();
+
+if (!singleInstanceLock) {
+  app.quit();
 }
 
-function parseForzaPacket(data) {
-  if (data.length < 324) return null;
+function loadEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) return;
 
-  try {
-    let offset = 0;
-    const readInt = () => {
-      const value = data.readInt32LE(offset);
-      offset += 4;
-      return value;
-    };
-    const readUInt = () => {
-      const value = data.readUInt32LE(offset);
-      offset += 4;
-      return value;
-    };
-    const readFloat = () => {
-      const value = data.readFloatLE(offset);
-      offset += 4;
-      return value;
-    };
-    const readUInt16 = () => {
-      const value = data.readUInt16LE(offset);
-      offset += 2;
-      return value;
-    };
-    const readUInt8 = () => {
-      const value = data.readUInt8(offset);
-      offset += 1;
-      return value;
-    };
-    const readInt8 = () => {
-      const value = data.readInt8(offset);
-      offset += 1;
-      return value;
-    };
-
-    const isRaceOn = readInt();
-    const timestampMs = readUInt();
-    const engineMaxRpm = readFloat();
-    const engineIdleRpm = readFloat();
-    const currentEngineRpm = readFloat();
-    const accelerationX = readFloat();
-    const accelerationY = readFloat();
-    const accelerationZ = readFloat();
-    const velocityX = readFloat();
-    const velocityY = readFloat();
-    const velocityZ = readFloat();
-    const angularVelocityX = readFloat();
-    const angularVelocityY = readFloat();
-    const angularVelocityZ = readFloat();
-    const yaw = readFloat();
-    const pitch = readFloat();
-    const roll = readFloat();
-    const normalizedSuspensionTravelFrontLeft = readFloat();
-    const normalizedSuspensionTravelFrontRight = readFloat();
-    const normalizedSuspensionTravelRearLeft = readFloat();
-    const normalizedSuspensionTravelRearRight = readFloat();
-    const tireSlipRatioFrontLeft = readFloat();
-    const tireSlipRatioFrontRight = readFloat();
-    const tireSlipRatioRearLeft = readFloat();
-    const tireSlipRatioRearRight = readFloat();
-    const wheelRotationSpeedFrontLeft = readFloat();
-    const wheelRotationSpeedFrontRight = readFloat();
-    const wheelRotationSpeedRearLeft = readFloat();
-    const wheelRotationSpeedRearRight = readFloat();
-    const wheelOnRumbleStripFrontLeft = readInt();
-    const wheelOnRumbleStripFrontRight = readInt();
-    const wheelOnRumbleStripRearLeft = readInt();
-    const wheelOnRumbleStripRearRight = readInt();
-    const wheelInPuddleFrontLeft = readInt();
-    const wheelInPuddleFrontRight = readInt();
-    const wheelInPuddleRearLeft = readInt();
-    const wheelInPuddleRearRight = readInt();
-    const surfaceRumbleFrontLeft = readFloat();
-    const surfaceRumbleFrontRight = readFloat();
-    const surfaceRumbleRearLeft = readFloat();
-    const surfaceRumbleRearRight = readFloat();
-    const tireSlipAngleFrontLeft = readFloat();
-    const tireSlipAngleFrontRight = readFloat();
-    const tireSlipAngleRearLeft = readFloat();
-    const tireSlipAngleRearRight = readFloat();
-    const tireCombinedSlipFrontLeft = readFloat();
-    const tireCombinedSlipFrontRight = readFloat();
-    const tireCombinedSlipRearLeft = readFloat();
-    const tireCombinedSlipRearRight = readFloat();
-    const suspensionTravelMetersFrontLeft = readFloat();
-    const suspensionTravelMetersFrontRight = readFloat();
-    const suspensionTravelMetersRearLeft = readFloat();
-    const suspensionTravelMetersRearRight = readFloat();
-    const carOrdinal = readInt();
-    const carClass = readInt();
-    const carPerformanceIndex = readInt();
-    const drivetrainType = readInt();
-    const numCylinders = readInt();
-    const carGroup = readUInt();
-    const smashableVelDiff = readFloat();
-    const smashableMass = readFloat();
-    const positionX = readFloat();
-    const positionY = readFloat();
-    const positionZ = readFloat();
-    const speed = readFloat();
-    const power = readFloat();
-    const torque = readFloat();
-    const tireTempFrontLeft = readFloat();
-    const tireTempFrontRight = readFloat();
-    const tireTempRearLeft = readFloat();
-    const tireTempRearRight = readFloat();
-    const boostPsi = readFloat();
-    const fuel = readFloat();
-    const distanceTraveled = readFloat();
-    const bestLap = readFloat();
-    const lastLap = readFloat();
-    const currentLap = readFloat();
-    const currentRaceTime = readFloat();
-    const lapNumber = readUInt16();
-    const racePosition = readUInt8();
-    const accelInput = readUInt8();
-    const brakeInput = readUInt8();
-    const clutchInput = readUInt8();
-    const handBrake = readUInt8();
-    const gear = readUInt8();
-    const steer = readInt8();
-    const normalizedDrivingLine = readInt8();
-    const normalizedAIBrakeDifference = readInt8();
-
-    return {
-      timestamp: Date.now(),
-      rawPacketSize: data.length,
-      rawCount,
-      parsedCount,
-      lastSender,
-      status: "ONLINE",
-      isRaceOn,
-      timestampMs,
-      engineMaxRpm,
-      engineIdleRpm,
-      rpm: Math.max(0, Math.round(currentEngineRpm || 0)),
-      maxRpm: Math.max(7000, Math.round(engineMaxRpm || 10000)),
-      accelerationX,
-      accelerationY,
-      accelerationZ,
-      velocityX,
-      velocityY,
-      velocityZ,
-      angularVelocityX,
-      angularVelocityY,
-      angularVelocityZ,
-      yaw,
-      pitch,
-      roll,
-      normalizedSuspensionTravelFrontLeft,
-      normalizedSuspensionTravelFrontRight,
-      normalizedSuspensionTravelRearLeft,
-      normalizedSuspensionTravelRearRight,
-      suspensionTravelMetersFrontLeft,
-      suspensionTravelMetersFrontRight,
-      suspensionTravelMetersRearLeft,
-      suspensionTravelMetersRearRight,
-      tireSlipRatioFrontLeft,
-      tireSlipRatioFrontRight,
-      tireSlipRatioRearLeft,
-      tireSlipRatioRearRight,
-      tireSlipAngleFrontLeft,
-      tireSlipAngleFrontRight,
-      tireSlipAngleRearLeft,
-      tireSlipAngleRearRight,
-      tireCombinedSlipFrontLeft,
-      tireCombinedSlipFrontRight,
-      tireCombinedSlipRearLeft,
-      tireCombinedSlipRearRight,
-      tireTempFrontLeft,
-      tireTempFrontRight,
-      tireTempRearLeft,
-      tireTempRearRight,
-      wheelRotationSpeedFrontLeft,
-      wheelRotationSpeedFrontRight,
-      wheelRotationSpeedRearLeft,
-      wheelRotationSpeedRearRight,
-      wheelOnRumbleStripFrontLeft,
-      wheelOnRumbleStripFrontRight,
-      wheelOnRumbleStripRearLeft,
-      wheelOnRumbleStripRearRight,
-      wheelInPuddleFrontLeft,
-      wheelInPuddleFrontRight,
-      wheelInPuddleRearLeft,
-      wheelInPuddleRearRight,
-      surfaceRumbleFrontLeft,
-      surfaceRumbleFrontRight,
-      surfaceRumbleRearLeft,
-      surfaceRumbleRearRight,
-      carOrdinal,
-      carClass,
-      carPerformanceIndex,
-      drivetrainType,
-      numCylinders,
-      carGroup,
-      smashableVelDiff,
-      smashableMass,
-      positionX,
-      positionY,
-      positionZ,
-      speedMps: speed,
-      speedKmh: Math.max(0, speed * 3.6),
-      speedMph: Math.max(0, speed * 3.6 * 0.621371),
-      powerW: power,
-      powerHp: Math.max(0, power / 745.7),
-      powerPs: Math.max(0, power / 735.49875),
-      torqueNm: torque,
-      boostPsi,
-      boostBar: boostPsi / 14.5038,
-      fuel,
-      fuelPercent: Number.isFinite(fuel)
-        ? Math.round(Math.min(Math.max(fuel, 0), 1) * 100)
-        : null,
-      distanceTraveled,
-      bestLap,
-      lastLap,
-      currentLap,
-      currentRaceTime,
-      lapNumber,
-      racePosition,
-      throttle: accelInput,
-      brake: brakeInput,
-      clutch: clutchInput,
-      handBrake,
-      gear,
-      steer,
-      normalizedDrivingLine,
-      normalizedAIBrakeDifference,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function deriveFuelMetrics(telemetry) {
-  const fuel =
-    typeof telemetry.fuel === "number" && Number.isFinite(telemetry.fuel)
-      ? telemetry.fuel
-      : null;
-  const distance =
-    typeof telemetry.distanceTraveled === "number" &&
-    Number.isFinite(telemetry.distanceTraveled)
-      ? telemetry.distanceTraveled
-      : null;
-
-  if (fuel == null || distance == null) {
-    return telemetry;
-  }
-
-  const hasDirectFuelRate = telemetry.fuelRate != null;
-  const hasDirectFuelRange = telemetry.fuelRange != null;
-  let derived = { ...telemetry };
-  if (
-    lastFuelTelemetry &&
-    typeof lastFuelTelemetry.fuel === "number" &&
-    typeof lastFuelTelemetry.distance === "number"
-  ) {
-    const deltaFuel = lastFuelTelemetry.fuel - fuel;
-    const deltaDistanceKm = (distance - lastFuelTelemetry.distance) / 1000;
-    if (deltaFuel > 0 && deltaDistanceKm > 0) {
-      const fractionPerKm = deltaFuel / deltaDistanceKm;
-      const estimatedRangeKm = fuel / fractionPerKm;
-      const fuelRateL100Km = fractionPerKm * ASSUMED_FUEL_TANK_LITERS * 100;
-      derived = {
-        ...derived,
-        fuelRate: hasDirectFuelRate
-          ? telemetry.fuelRate
-          : Math.max(0, fuelRateL100Km),
-        fuelRange: hasDirectFuelRange
-          ? telemetry.fuelRange
-          : Math.max(0, Math.round(estimatedRangeKm)),
-      };
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed
+      .slice(separator + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (key && process.env[key] == null) {
+      process.env[key] = value;
     }
   }
-
-  lastFuelTelemetry = { fuel, distance };
-  return derived;
 }
 
-function startUdp() {
-  udpSocket = dgram.createSocket("udp4");
-  udpSocket.on("message", (message, remote) => {
-    rawCount += 1;
-    lastSender = `${remote.address}:${remote.port}`;
-    const telemetry = parseForzaPacket(message);
-    if (!telemetry) return;
-    parsedCount += 1;
-    const telemetryWithFuel = deriveFuelMetrics(telemetry);
-    latestTelemetry = { ...telemetryWithFuel, parsedCount };
-    mainWindow?.webContents.send("telemetry:update", latestTelemetry);
+function loadRuntimeEnv() {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(path.dirname(process.execPath), ".env"),
+    path.join(__dirname, "..", ".env"),
+  ];
+
+  for (const envPath of candidates) {
+    loadEnvFile(envPath);
+  }
+}
+
+function envPort(name, fallback) {
+  const port = Number(process.env[name]);
+  return Number.isInteger(port) && port > 0 ? port : fallback;
+}
+
+function contentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return (
+    {
+      ".css": "text/css; charset=utf-8",
+      ".html": "text/html; charset=utf-8",
+      ".ico": "image/x-icon",
+      ".js": "text/javascript; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".png": "image/png",
+      ".svg": "image/svg+xml",
+      ".webp": "image/webp",
+    }[ext] || "application/octet-stream"
+  );
+}
+
+function sendFile(response, filePath) {
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+      return;
+    }
+
+    response.writeHead(200, { "Content-Type": contentType(filePath) });
+    response.end(data);
   });
-  udpSocket.bind(UDP_PORT, UDP_HOST);
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
-    minWidth: 1280,
-    minHeight: 720,
-    backgroundColor: "#02070b",
-    autoHideMenuBar: true,
-    icon: path.join(__dirname, "..", "onyx_icon.ico"),
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+function readHardwareTemperature() {
+  const script = `
+$gpuSensors = @()
+$cpuSensors = @()
+foreach ($namespace in @("root/LibreHardwareMonitor", "root/OpenHardwareMonitor")) {
+  try {
+    $allSensors = Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop |
+      Where-Object { $_.SensorType -eq "Temperature" }
+    $gpuSensors += $allSensors |
+      Where-Object { $_.Name -match "GPU|Graphics|Hot Spot|Core" -or $_.Parent -match "GPU|Graphics|Radeon|NVIDIA|GeForce" } |
+      Select-Object Name, Parent, Value
+    $cpuSensors += $allSensors |
+      Where-Object { $_.Name -match "CPU|Package|Core" -or $_.Parent -match "CPU" } |
+      Select-Object Name, Parent, Value
+  } catch {}
+}
+
+if ($gpuSensors.Count -gt 0) {
+  $gpu0 = $gpuSensors | Where-Object { $_.Parent -match "0|Radeon|AMD" -or $_.Name -match "GPU Core|GPU Temperature|Core" } | Select-Object -First 1
+  if (-not $gpu0) { $gpu0 = $gpuSensors | Select-Object -First 1 }
+  [PSCustomObject]@{
+    temperature = [Math]::Round([double]$gpu0.Value, 0)
+    source = "gpu-wmi"
+    name = $gpu0.Name
+    parent = $gpu0.Parent
+  } | ConvertTo-Json -Compress
+  exit
+}
+
+if ($cpuSensors.Count -gt 0) {
+  $cpu = $cpuSensors | Select-Object -First 1
+  [PSCustomObject]@{
+    temperature = [Math]::Round([double]$cpu.Value, 0)
+    source = "cpu-wmi"
+    name = $cpu.Name
+    parent = $cpu.Parent
+  } | ConvertTo-Json -Compress
+  exit
+}
+
+try {
+  $thermal = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop |
+    Select-Object -First 1 -ExpandProperty CurrentTemperature
+  if ($thermal) {
+    [PSCustomObject]@{
+      temperature = [Math]::Round(($thermal / 10) - 273.15, 0)
+      source = "thermal-zone"
+      name = "MSAcpi_ThermalZoneTemperature"
+      parent = ""
+    } | ConvertTo-Json -Compress
+  }
+} catch {}
+`;
+
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { timeout: 3000, windowsHide: true },
+      (error, stdout) => {
+        if (error) {
+          resolve({ temperature: null, source: "unavailable" });
+          return;
+        }
+
+        try {
+          const data = JSON.parse(String(stdout).trim().split(/\r?\n/).pop() || "{}");
+          const value = Number(data.temperature);
+          const result = {
+            temperature: Number.isFinite(value) && value > 0 ? value : null,
+            source: data.source || "unavailable",
+            name: data.name || "",
+            parent: data.parent || "",
+          };
+          resolve(result);
+        } catch (parseError) {
+          resolve({ temperature: null, source: "parse-failed" });
+        }
+      },
+    );
+  });
+}
+
+function startDashboardServer() {
+  const dashboardRoot = path.join(__dirname, "..", "dist");
+  const port = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
+
+  webServer = http.createServer((request, response) => {
+    const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+
+    if (url.pathname === "/api/hardware-temp" || url.pathname === "/api/cpu-temp") {
+      readHardwareTemperature().then((result) => {
+        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify(result));
+      });
+      return;
+    }
+
+    const decodedPath = decodeURIComponent(url.pathname);
+    const normalizedPath = path
+      .normalize(decodedPath)
+      .replace(/^(\.\.[/\\])+/, "");
+    const requestedPath = path.join(
+      dashboardRoot,
+      normalizedPath === path.sep ? "index.html" : normalizedPath,
+    );
+
+    if (!requestedPath.startsWith(dashboardRoot)) {
+      response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Forbidden");
+      return;
+    }
+
+    fs.stat(requestedPath, (error, stat) => {
+      if (!error && stat.isFile()) {
+        sendFile(response, requestedPath);
+        return;
+      }
+
+      sendFile(response, path.join(dashboardRoot, "index.html"));
+    });
   });
 
-  mainWindow.loadURL("http://127.0.0.1:5173");
+  return new Promise((resolve, reject) => {
+    webServer.once("error", reject);
+    webServer.listen(port, "127.0.0.1", () => {
+      webServer.off("error", reject);
+      resolve(`http://127.0.0.1:${port}/`);
+    });
+  });
 }
 
-app.whenReady().then(() => {
-  ipcMain.handle("telemetry:getLatest", () => latestTelemetry);
-  startUdp();
-  createWindow();
-});
+function createTray(dashboardUrl) {
+  tray = new Tray(path.join(__dirname, "..", "forza-logo.png"));
+  tray.setToolTip("ForzaDash");
+  tray.on("click", () => shell.openExternal(dashboardUrl));
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Quit ForzaDash",
+        click: () => app.quit(),
+      },
+    ]),
+  );
+}
 
-app.on("window-all-closed", () => {
-  udpSocket?.close();
-  if (process.platform !== "darwin") app.quit();
+if (singleInstanceLock) {
+  app.on("second-instance", () => {
+    if (dashboardUrl) {
+      shell.openExternal(dashboardUrl);
+    }
+  });
+
+  app.whenReady().then(async () => {
+    app.setAppUserModelId("com.forzadash.app");
+    loadRuntimeEnv();
+    require(path.join(__dirname, "..", "server.cjs"));
+    dashboardUrl = await startDashboardServer();
+    createTray(dashboardUrl);
+    await shell.openExternal(dashboardUrl);
+  });
+}
+
+app.on("before-quit", () => {
+  webServer?.close();
 });

@@ -1,5 +1,5 @@
 {
-  "name": "onyx-drive-hud-dashboard",
+  "name": "forzadash",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,23 +9,51 @@
     "web": "vite --host 127.0.0.1",
     "server": "node server.cjs",
     "electron": "electron .",
-    "build": "vite build"
+    "build": "vite build",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win portable",
+    "dist:win:dir": "npm run build && electron-builder --win dir",
+    "ship": "node scripts/ship.cjs"
+  },
+  "build": {
+    "appId": "com.forzadash.app",
+    "productName": "ForzaDash",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "scripts/**/*",
+      "server.cjs",
+      "forza-logo.png",
+      "package.json"
+    ],
+    "afterPack": "scripts/afterPack.cjs",
+    "win": {
+      "icon": "forza-logo.png",
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "ForzaDash.exe"
+    }
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
-    "concurrently": "^9.1.0",
-    "electron": "42.2.0",
-    "lucide-react": "^0.468.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "typescript": "^5.8.0",
-    "vite": "^7.0.0",
-    "wait-on": "^8.0.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "42.2.0",
+    "electron-builder": "^26.8.1",
+    "lucide-react": "^0.468.0",
     "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.0"
   }
 }

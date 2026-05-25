@@ -1,20 +1,130 @@
-# ONYX Drive HUD
+# ForzaDash
 
-ONYX Drive HUD is a local Forza telemetry dashboard built with Vite, React, Electron, and a small Node WebSocket/UDP bridge.
+ForzaDash is a local telemetry dashboard for Forza Horizon. It reads the game's built-in Data Out UDP stream and turns it into a live racing HUD with speed, RPM, gear, tire temperature, suspension travel, inputs, power, weather, and optional Spotify controls.
 
-## Run
+It is not a Forza mod menu, trainer, memory editor, or save editor. It does not patch the game, inject into the game, or change any game files. ForzaDash only listens to telemetry that Forza already exposes through Data Out.
+
+## Demo
+
+[Watch the demo video](Demo.mp4)
+
+```text
+Demo.mp4
+```
+
+## What It Does
+
+- Shows a real-time Forza Horizon dashboard in your browser.
+- Reads Forza Data Out from `127.0.0.1`.
+- Displays speed, RPM, gear, boost, throttle, brake, clutch, steering, tire temperatures, suspension, torque, and horsepower.
+- Provides a mirrored WebSocket telemetry stream for other local tools.
+- Includes weather display based on a configurable region.
+- Supports optional Spotify playback controls when a Spotify Client ID is configured.
+- Can run as a local web app during development or as a packaged Windows Electron app.
+
+## Supported Games
+
+ForzaDash is designed for Forza Horizon games that support Data Out telemetry, including Forza Horizon 4 and Forza Horizon 5.
+
+## Requirements
+
+- Windows
+- Forza Horizon with Data Out support
+- Node.js LTS from `https://nodejs.org/`
+- npm, included with Node.js
+
+## Quick Start
+
+Download or clone the project, then open the project folder in Command Prompt or PowerShell.
+
+Install dependencies once:
+
+```bat
+npm install
+```
+
+Start ForzaDash:
+
+```bat
+main.bat
+```
+
+Choose:
+
+```text
+1. Start HUD and open web dashboard
+```
+
+Keep the command window open while using the dashboard.
+
+By default, the dashboard opens at:
+
+```text
+http://127.0.0.1:5173/
+```
+
+## Forza Setup
+
+Open Forza Horizon and enable Data Out in the game settings.
+
+Use these values:
+
+```text
+Data Out: On
+Data Out IP Address: 127.0.0.1
+Data Out IP Port: 1234
+```
+
+ForzaDash will not show live car data until Data Out is enabled and the port matches the project configuration.
+
+## Configuration
+
+Copy `.env.example` to `.env` if you want to customize ports, weather, or Spotify:
+
+```bat
+copy .env.example .env
+```
+
+Default settings:
+
+```env
+VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
+VITE_WEATHER_REGION=Bageshwar
+VITE_DASHBOARD_PORT=5173
+VITE_FORZA_UDP_PORT=1234
+VITE_TELEMETRY_WS_PORT=17878
+VITE_PUBLIC_TELEMETRY_WS_PORT=5174
+```
+
+Port meanings:
+
+```text
+VITE_DASHBOARD_PORT              Browser dashboard
+VITE_FORZA_UDP_PORT              Forza Data Out UDP input
+VITE_TELEMETRY_WS_PORT           Internal telemetry WebSocket
+VITE_PUBLIC_TELEMETRY_WS_PORT    Public mirrored telemetry WebSocket
+```
+
+If you change `VITE_FORZA_UDP_PORT`, also change the Data Out port inside Forza.
+
+## Development
 
 Install dependencies:
 
 ```bat
-npm.cmd install
+npm install
 ```
 
-Start the web dashboard and telemetry server:
+Run the local development server:
 
 ```bat
-npm.cmd run dev
+npm run dev
 ```
+
+This starts both:
+
+- The telemetry server from `server.cjs`
+- The Vite React dashboard
 
 Open:
 
@@ -22,56 +132,105 @@ Open:
 http://127.0.0.1:5173/
 ```
 
-You can also use:
+Useful scripts:
 
 ```bat
-start_web_hud.bat
+npm run dev       # Start telemetry server and Vite together
+npm run web       # Start only the Vite frontend
+npm run server    # Start only the telemetry server
+npm run build     # Build the web app
+npm run dist:win  # Build a portable Windows Electron app
 ```
 
-## Forza Data Out
+## Building The App
 
-Use these Forza settings:
+Create a production web build:
 
-```text
-Data Out: On
-Data Out IP: 127.0.0.1
-Data Out Port: 1234
+```bat
+npm run build
 ```
 
-The local server listens for Forza UDP packets and forwards live telemetry to the dashboard.
+Create a portable Windows app:
 
-## Spotify
+```bat
+npm run dist:win
+```
 
-Create a Spotify app in the Spotify Developer Dashboard and add this redirect URI:
+Build output is written to `dist/`.
+
+## Spotify Setup Optional
+
+Spotify is optional. The dashboard works without it.
+
+To enable Spotify controls:
+
+1. Create an app in the Spotify Developer Dashboard.
+2. Add this Redirect URI:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-Copy `.env.example` to `.env` and set:
+3. Copy your Spotify Client ID into `.env`:
 
-```text
+```env
 VITE_SPOTIFY_CLIENT_ID=your_spotify_client_id_here
 ```
 
-Restart the dashboard after changing `.env`.
+4. Restart ForzaDash.
+5. Open settings in the dashboard and log in to Spotify.
 
-## Build
+## Public Telemetry Stream
 
-Create a production web build:
-
-```bat
-npm.cmd run build
-```
-
-Output goes to `dist/`.
-
-## Project Layout
+Other local apps can read parsed telemetry from:
 
 ```text
-src/              React dashboard UI
-src/assets/       Dashboard images
-electron/         Electron shell and preload bridge
-server.cjs        Forza UDP to WebSocket bridge
-package.json      Node scripts and dependencies
+ws://127.0.0.1:5174/
 ```
+
+If you change `VITE_PUBLIC_TELEMETRY_WS_PORT`, use the new port instead.
+
+## Stopping ForzaDash
+
+Run:
+
+```bat
+main.bat
+```
+
+Choose:
+
+```text
+2. Stop HUD and close
+```
+
+This stops the local dashboard and telemetry ports.
+
+## Troubleshooting
+
+If the dashboard opens but does not react to the car:
+
+- Make sure Forza Data Out is turned on.
+- Make sure the Data Out IP is `127.0.0.1`.
+- Make sure the Data Out port is `1234`, or matches `VITE_FORZA_UDP_PORT`.
+- Keep `main.bat` open while using the dashboard.
+- Restart ForzaDash after changing `.env` or Forza Data Out settings.
+
+If the dashboard does not start:
+
+```bat
+npm install
+npm run dev
+```
+
+If ports are stuck, run `main.bat` and choose option `2`, then start again.
+
+## Safety Note
+
+ForzaDash does not modify Forza Horizon files and does not need access to the game installation folder. It only reads local telemetry sent by the game's official Data Out feature.
+
+Use third-party tools responsibly and follow the terms of service for the game and platform you play on.
+
+## Disclaimer
+
+ForzaDash is an independent third-party project. It is not affiliated with, endorsed by, or sponsored by Microsoft, Xbox Game Studios, Playground Games, Turn 10 Studios, or the Forza franchise.

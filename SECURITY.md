@@ -1,11 +1,11 @@
 # Security
 
-ONYX Drive HUD runs locally and listens for Forza UDP telemetry on port `1234`.
+ForzaDash runs locally and listens for Forza UDP telemetry on `VITE_FORZA_UDP_PORT`.
 
 ## Local Services
 
-- The dashboard runs on `http://127.0.0.1:5173/`.
-- The telemetry bridge uses a local WebSocket server.
+- The dashboard runs on `VITE_DASHBOARD_PORT`.
+- The telemetry bridge uses local WebSocket ports from `.env`.
 - Do not expose these ports to untrusted networks.
 
 ## Secrets
