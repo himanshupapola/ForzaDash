@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/e52d98cd-b22d-4727-8465-2ab6a72d2553
 
 Download the Windows EXE from the latest release:
 
-[https://github.com/himanshupapola/ForzaDash/releases/tag/v1.0.0](https://github.com/himanshupapola/ForzaDash/releases/tag/v2.0.0)
+https://github.com/himanshupapola/ForzaDash/releases/tag/v2.0.0
 
 Run `ForzaDash.exe`. Normal users do not need Node.js, npm, or the source code.
 
