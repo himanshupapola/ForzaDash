@@ -1,0 +1,16 @@
+node_modules/
+dist/
+
+.env
+.env.local
+.env.*.local
+
+*.log
+logs/
+
+release/
+build/
+__pycache__/
+
+.DS_Store
+Thumbs.db
