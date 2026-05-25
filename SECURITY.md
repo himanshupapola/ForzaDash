@@ -6,7 +6,8 @@ ForzaDash runs locally and listens for Forza UDP telemetry on `VITE_FORZA_UDP_PO
 
 - The dashboard runs on `VITE_DASHBOARD_PORT`.
 - The telemetry bridge uses local WebSocket ports from `.env`.
-- Do not expose these ports to untrusted networks.
+- The dashboard asks for a password when reached through a public hostname or IP. The default is `9837`; change it with `VITE_PUBLIC_DASHBOARD_PASSWORD`.
+- Avoid exposing telemetry WebSocket or UDP ports to untrusted networks unless you intentionally want other tools to read them.
 
 ## Secrets
 

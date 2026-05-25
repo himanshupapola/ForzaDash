@@ -2,6 +2,7 @@ const dgram = require("node:dgram");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
@@ -37,9 +38,22 @@ function envPort(name, fallback) {
   return Number.isInteger(port) && port > 0 ? port : fallback;
 }
 
+function getLocalNetworkAddress() {
+  for (const interfaces of Object.values(os.networkInterfaces())) {
+    for (const entry of interfaces || []) {
+      if (entry.family === "IPv4" && !entry.internal) {
+        return entry.address;
+      }
+    }
+  }
+
+  return "127.0.0.1";
+}
+
 loadLocalEnv();
 
 const UDP_HOST = "0.0.0.0";
+const LAN_HOST = "0.0.0.0";
 // Forza sends raw UDP telemetry packets here
 const UDP_PORT = envPort("VITE_FORZA_UDP_PORT", 1234);
 // Forward the raw packets to another local port for tools like SimHub
@@ -576,9 +590,12 @@ udp.on("message", (message, remote) => {
   broadcast(latestTelemetry);
 });
 
-telemetryServer.listen(WS_PORT, "127.0.0.1", () => {
+telemetryServer.listen(WS_PORT, LAN_HOST, () => {
+  const localAddress = getLocalNetworkAddress();
   console.log(`Telemetry WebSocket listening on ws://127.0.0.1:${WS_PORT}`);
+  console.log(`LAN Telemetry WebSocket listening on ws://${localAddress}:${WS_PORT}`);
   console.log(`Hardware temp API listening on http://127.0.0.1:${WS_PORT}/api/hardware-temp`);
+  console.log(`LAN hardware temp API listening on http://${localAddress}:${WS_PORT}/api/hardware-temp`);
 });
 
 udp.bind(UDP_PORT, UDP_HOST, () => {

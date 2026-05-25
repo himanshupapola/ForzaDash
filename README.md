@@ -37,6 +37,7 @@ If the dashboard does not react, check that the Data Out port in Forza matches t
 - Live power and torque graph
 - Weather panel with configurable region
 - Optional Spotify playback controls
+- LAN dashboard access from another device on the same local network
 - Public local telemetry WebSocket for other tools
 - Portable Windows build
 
@@ -61,10 +62,32 @@ Default local dashboard:
 http://127.0.0.1:5173/
 ```
 
+Default LAN dashboard:
+
+```text
+http://YOUR_PC_IP:5173/
+```
+
+Hotspot networks often use `10.x.x.x` addresses such as:
+
+```text
+http://10.5.0.2:5173/
+```
+
+If that address does not open from your phone, allow ForzaDash/Node.js through Windows Firewall and make sure the phone and PC are still on the same hotspot network.
+
+Public dashboard access is password-protected when the dashboard is reached through a non-private/public hostname or IP. The default password is:
+
+```text
+9837
+```
+
+To change it, set `VITE_PUBLIC_DASHBOARD_PASSWORD` in `.env`. For public access, forward only the dashboard port unless you intentionally want to expose telemetry services too.
+
 Default public telemetry stream:
 
 ```text
-ws://127.0.0.1:5174/
+ws://127.0.0.1:17878/
 ```
 
 ## Development
@@ -116,6 +139,8 @@ If live data does not appear:
 - Make sure Data Out is enabled in Forza.
 - Make sure the IP is `127.0.0.1`.
 - Make sure the Data Out port is `1234`, or matches the app setting.
+- To open the dashboard on another local device, use your PC IP and dashboard port.
+- Allow Windows Firewall access if LAN dashboard does not open.
 - Allow firewall/network access if Windows asks.
 - Restart ForzaDash after changing ports.
 

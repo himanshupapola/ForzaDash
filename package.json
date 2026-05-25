@@ -5,8 +5,8 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"node server.cjs\" \"vite --host 127.0.0.1\"",
-    "web": "vite --host 127.0.0.1",
+    "dev": "concurrently -k \"node server.cjs\" \"vite --host 0.0.0.0\"",
+    "web": "vite --host 0.0.0.0",
     "server": "node server.cjs",
     "electron": "electron .",
     "build": "vite build",
