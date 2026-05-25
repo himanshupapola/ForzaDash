@@ -53,6 +53,64 @@ function envPort(name, fallback) {
   return Number.isInteger(port) && port > 0 ? port : fallback;
 }
 
+const SETTINGS_KEY = "forzadash_settings";
+const SETTINGS_ENV_MAP = {
+  dashboardPort: "VITE_DASHBOARD_PORT",
+  forzaUdpPort: "VITE_FORZA_UDP_PORT",
+  forzaUdpForwardPort: "VITE_FORZA_UDP_FORWARD_PORT",
+  forzaUdpForwardPort2: "VITE_FORZA_UDP_FORWARD_PORT_2",
+  telemetryWsPort: "VITE_TELEMETRY_WS_PORT",
+  weatherRegion: "VITE_WEATHER_REGION",
+  backgroundColor: "VITE_BACKGROUND_COLOR",
+  spotifyClientId: "VITE_SPOTIFY_CLIENT_ID",
+};
+
+function readElectronLocalStorageSettings() {
+  const userDataPath = app.getPath("userData");
+  const candidates = [
+    path.join(userDataPath, "Local Storage", "leveldb"),
+    path.join(userDataPath, "Default", "Local Storage", "leveldb"),
+  ];
+
+  for (const storagePath of candidates) {
+    if (!fs.existsSync(storagePath)) continue;
+
+    const files = fs
+      .readdirSync(storagePath, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.(ldb|log)$/i.test(entry.name))
+      .map((entry) => path.join(storagePath, entry.name));
+
+    for (const filePath of files) {
+      try {
+        const contents = fs.readFileSync(filePath, "utf16le");
+        const keyIndex = contents.lastIndexOf(SETTINGS_KEY);
+        if (keyIndex === -1) continue;
+
+        const jsonStart = contents.indexOf("{", keyIndex);
+        const nextSettingsKey = contents.indexOf(SETTINGS_KEY, keyIndex + 1);
+        const searchEnd =
+          nextSettingsKey === -1 ? contents.length : nextSettingsKey;
+        const jsonEnd = contents.lastIndexOf("}", searchEnd);
+        if (jsonStart === -1 || jsonEnd === -1) continue;
+
+        return JSON.parse(contents.slice(jsonStart, jsonEnd + 1));
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+function applySavedSettingsToEnv() {
+  const settings = readElectronLocalStorageSettings();
+  if (!settings) return;
+
+  for (const [settingKey, envKey] of Object.entries(SETTINGS_ENV_MAP)) {
+    const value = String(settings[settingKey] ?? "").trim();
+    if (value) process.env[envKey] = value;
+  }
+}
+
 function contentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   return (
@@ -277,6 +335,7 @@ if (singleInstanceLock) {
   app.whenReady().then(async () => {
     app.setAppUserModelId("com.forzadash.app");
     loadRuntimeEnv();
+    applySavedSettingsToEnv();
     require(path.join(__dirname, "..", "server.cjs"));
     dashboardUrl = await startDashboardServer();
     createTray(dashboardUrl);

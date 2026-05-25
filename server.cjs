@@ -5,6 +5,13 @@ const http = require("node:http");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
+let HID = null;
+try {
+  HID = require("node-hid");
+} catch {
+  HID = null;
+}
+
 function loadLocalEnv() {
   const envPath = path.join(__dirname, ".env");
   if (!fs.existsSync(envPath)) return;
@@ -37,6 +44,8 @@ const UDP_HOST = "0.0.0.0";
 const UDP_PORT = envPort("VITE_FORZA_UDP_PORT", 1234);
 // Forward the raw packets to another local port for tools like SimHub
 const UDP_FORWARD_PORT = envPort("VITE_FORZA_UDP_FORWARD_PORT", 1235);
+const UDP_FORWARD_PORT_2 = envPort("VITE_FORZA_UDP_FORWARD_PORT_2", 1236);
+const UDP_FORWARD_PORTS = [UDP_FORWARD_PORT, UDP_FORWARD_PORT_2];
 // The dashboard app connects to this WebSocket for parsed telemetry
 const WS_PORT = envPort("VITE_TELEMETRY_WS_PORT", 17878);
 
@@ -46,6 +55,100 @@ let lastSender = "-";
 let latestTelemetry = null;
 let lastFuelTelemetry = null;
 const ASSUMED_FUEL_TANK_LITERS = 60;
+const G29_LEDS_ENABLED = process.env.VITE_G29_LEDS_ENABLED !== "false";
+const G29_VENDOR_ID = 1133;
+const G29_PRODUCT_ID = 49743;
+let g29Device = null;
+let g29LastLedSetting = null;
+let g29LastWriteAt = 0;
+let g29UnavailableLogged = false;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function findG29Path() {
+  if (!HID) return "";
+
+  const devices = HID.devices();
+  const wheel = devices.find(
+    (device) =>
+      device.vendorId === G29_VENDOR_ID &&
+      (device.productId === G29_PRODUCT_ID ||
+        device.product === "G29 Driving Force Racing Wheel") &&
+      (device.interface === 0 || device.usagePage === 1),
+  );
+
+  return wheel?.path || "";
+}
+
+function connectG29Leds() {
+  if (!G29_LEDS_ENABLED || !HID || g29Device) return g29Device;
+
+  const devicePath = findG29Path();
+  if (!devicePath) {
+    if (!g29UnavailableLogged) {
+      console.warn("Logitech G29 LEDs unavailable: wheel not found");
+      g29UnavailableLogged = true;
+    }
+    return null;
+  }
+
+  try {
+    g29Device = new HID.HID(devicePath);
+    g29UnavailableLogged = false;
+    console.log("Logitech G29 LED output connected");
+  } catch (error) {
+    if (!g29UnavailableLogged) {
+      console.warn("Logitech G29 LEDs unavailable:", error.message);
+      g29UnavailableLogged = true;
+    }
+    g29Device = null;
+  }
+
+  return g29Device;
+}
+
+function setG29Leds(setting) {
+  if (!G29_LEDS_ENABLED || !HID) return;
+
+  const now = Date.now();
+  if (setting === g29LastLedSetting && now - g29LastWriteAt < 100) return;
+  if (now - g29LastWriteAt < 30) return;
+
+  const device = connectG29Leds();
+  if (!device) return;
+
+  try {
+    device.write([0x00, 0xf8, 0x12, setting, 0x00, 0x00, 0x00, 0x01]);
+    g29LastLedSetting = setting;
+    g29LastWriteAt = now;
+  } catch (error) {
+    console.warn("Logitech G29 LED write failed:", error.message);
+    try {
+      g29Device?.close();
+    } catch {}
+    g29Device = null;
+    g29LastLedSetting = null;
+  }
+}
+
+function ledSettingFromRpmRatio(ratio) {
+  if (ratio >= 0.88) return 31;
+  if (ratio >= 0.72) return 15;
+  if (ratio >= 0.54) return 7;
+  if (ratio >= 0.36) return 3;
+  if (ratio >= 0.18) return 1;
+  return 0;
+}
+
+function updateG29Leds(telemetry) {
+  const rpm = Number(telemetry.rpm) || 0;
+  const maxRpm = Math.max(Number(telemetry.maxRpm) || 0, 1);
+  const rpmRatio = clamp(rpm / maxRpm, 0, 1);
+
+  setG29Leds(ledSettingFromRpmRatio(rpmRatio));
+}
 
 function readHardwareTemperature() {
   const script = `
@@ -449,24 +552,27 @@ udp.on("message", (message, remote) => {
   rawCount += 1;
   lastSender = `${remote.address}:${remote.port}`;
 
-  udpForwardSocket.send(
-    message,
-    0,
-    message.length,
-    UDP_FORWARD_PORT,
-    "127.0.0.1",
-    (err) => {
-      if (err) {
-        console.warn("UDP forward failed", err);
-      }
-    },
-  );
+  for (const forwardPort of UDP_FORWARD_PORTS) {
+    udpForwardSocket.send(
+      message,
+      0,
+      message.length,
+      forwardPort,
+      "127.0.0.1",
+      (err) => {
+        if (err) {
+          console.warn(`UDP forward to ${forwardPort} failed`, err);
+        }
+      },
+    );
+  }
 
   const telemetry = parseForzaPacket(message);
   if (!telemetry) return;
   parsedCount += 1;
   const telemetryWithFuel = deriveFuelMetrics(telemetry);
   latestTelemetry = { ...telemetryWithFuel, parsedCount };
+  updateG29Leds(latestTelemetry);
   broadcast(latestTelemetry);
 });
 
@@ -477,5 +583,7 @@ telemetryServer.listen(WS_PORT, "127.0.0.1", () => {
 
 udp.bind(UDP_PORT, UDP_HOST, () => {
   console.log(`Forza UDP listening on ${UDP_HOST}:${UDP_PORT}`);
-  console.log(`Forza UDP forwarding to 127.0.0.1:${UDP_FORWARD_PORT}`);
+  console.log(
+    `Forza UDP forwarding to ${UDP_FORWARD_PORTS.map((port) => `127.0.0.1:${port}`).join(", ")}`,
+  );
 });

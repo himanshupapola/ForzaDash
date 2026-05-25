@@ -56,6 +56,7 @@ const DEFAULT_SETTINGS = {
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
   forzaUdpPort: import.meta.env.VITE_FORZA_UDP_PORT || "1234",
   forzaUdpForwardPort: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT || "1235",
+  forzaUdpForwardPort2: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT_2 || "1236",
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
@@ -1234,15 +1235,10 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
   const gearMaxSpeed = gearMaxSpeeds[gearNumber] ?? 340;
   const throttleRatio = clamp((telemetry.throttle || 0) / 100, 0, 1);
   const brakeRatio = clamp((telemetry.brake || 0) / 100, 0, 1);
-  const brakeBoostRatio =
-    throttleRatio > 0.62 && brakeRatio > 0.28 ? throttleRatio * brakeRatio : 0;
   const driveGearRatio = Number.isFinite(gearNumber)
     ? clamp(speed / gearMaxSpeed, 0, 1)
     : 0;
-  const gearSpeedRatio =
-    brakeBoostRatio > 0
-      ? Math.max(driveGearRatio, 0.86 + brakeBoostRatio * 0.14)
-      : driveGearRatio;
+  const gearSpeedRatio = driveGearRatio;
   const needleRatioRef = useRef(0);
   const needleTimeRef = useRef(Date.now());
   const needleNow = Date.now();
@@ -1262,7 +1258,7 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
   const limiterIntensity =
     clamp((needleRatioRef.current - 0.88) / 0.12, 0, 1) * throttleRatio;
   const needleBounce =
-    Math.max(limiterIntensity, brakeBoostRatio) *
+    limiterIntensity *
     (Math.sin(needleNow / 58) * 2.4 + Math.sin(needleNow / 31) * 1.2);
   const needleAngle = 183 + needleRatioRef.current * 200 + needleBounce;
   const needleHot = needleRatioRef.current > 0.5;
@@ -1717,6 +1713,9 @@ function SettingsModal({ onClose }) {
       forzaUdpForwardPort:
         draft.forzaUdpForwardPort.trim() ||
         DEFAULT_SETTINGS.forzaUdpForwardPort,
+      forzaUdpForwardPort2:
+        draft.forzaUdpForwardPort2.trim() ||
+        DEFAULT_SETTINGS.forzaUdpForwardPort2,
       telemetryWsPort:
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
       spotifyClientId: draft.spotifyClientId.trim(),
@@ -1794,6 +1793,16 @@ function SettingsModal({ onClose }) {
               value={draft.forzaUdpForwardPort}
               onChange={(event) =>
                 updateField("forzaUdpForwardPort", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            <span>UDP Forward Port 2</span>
+            <input
+              inputMode="numeric"
+              value={draft.forzaUdpForwardPort2}
+              onChange={(event) =>
+                updateField("forzaUdpForwardPort2", event.target.value)
               }
             />
           </label>

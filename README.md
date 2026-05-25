@@ -51,7 +51,7 @@ These can be changed from the app settings panel:
 - Weather region
 - Dashboard port
 - Forza UDP Data Out port
-- UDP forward port
+- UDP forward ports
 - Telemetry WebSocket port
 - Spotify setup
 
