@@ -30,7 +30,7 @@ echo ==========================================
 echo.
 echo Forza UDP:  127.0.0.1:%VITE_FORZA_UDP_PORT%
 echo Dashboard:  http://127.0.0.1:%VITE_DASHBOARD_PORT%/
-echo Telemetry:  ws://127.0.0.1:%VITE_PUBLIC_TELEMETRY_WS_PORT%/
+echo Telemetry:  ws://127.0.0.1:%VITE_TELEMETRY_WS_PORT%/
 echo.
 echo Keep this command window open while using the HUD.
 echo Press Ctrl+C to stop the attached server.
@@ -56,7 +56,7 @@ exit /b %errorlevel%
 cls
 echo Stopping ForzaDash...
 echo.
-powershell -NoProfile -Command "$ports = @(%VITE_FORZA_UDP_PORT%,%VITE_TELEMETRY_WS_PORT%,%VITE_DASHBOARD_PORT%,%VITE_PUBLIC_TELEMETRY_WS_PORT%); $ids = @(); foreach ($port in $ports) { $ids += Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess; $ids += Get-NetUDPEndpoint -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess }; $ids | Where-Object { $_ -and $_ -ne $PID } | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "$ports = @(%VITE_FORZA_UDP_PORT%,%VITE_TELEMETRY_WS_PORT%,%VITE_DASHBOARD_PORT%); $ids = @(); foreach ($port in $ports) { $ids += Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess; $ids += Get-NetUDPEndpoint -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess }; $ids | Where-Object { $_ -and $_ -ne $PID } | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
 echo ForzaDash stopped.
 timeout /t 1 /nobreak >nul
 exit /b 0
@@ -65,7 +65,6 @@ exit /b 0
 set "VITE_DASHBOARD_PORT=5173"
 set "VITE_FORZA_UDP_PORT=1234"
 set "VITE_TELEMETRY_WS_PORT=17878"
-set "VITE_PUBLIC_TELEMETRY_WS_PORT=5174"
 if exist ".env" (
   for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
     if not "%%a"=="" set "%%a=%%b"

@@ -2,12 +2,10 @@ const { app, BrowserWindow, Menu, Tray } = require("electron");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
-const os = require("node:os");
 const path = require("node:path");
 
 const DEFAULT_DASHBOARD_PORT = 5173;
-const DEFAULT_PUBLIC_DASHBOARD_PASSWORD = "9837";
-const LAN_HOST = "0.0.0.0";
+const LOCAL_HOST = "127.0.0.1";
 
 let tray = null;
 let webServer = null;
@@ -56,68 +54,6 @@ function envPort(name, fallback) {
   return Number.isInteger(port) && port > 0 ? port : fallback;
 }
 
-function isPrivateHostname(hostname) {
-  const host = String(hostname || "")
-    .split(":")[0]
-    .replace(/^\[|\]$/g, "")
-    .toLowerCase();
-
-  if (!host || host === "localhost" || host === "::1") return true;
-  if (host.startsWith("127.")) return true;
-  if (host.startsWith("10.")) return true;
-  if (host.startsWith("192.168.")) return true;
-
-  const match = host.match(/^172\.(\d+)\./);
-  if (match) {
-    const secondOctet = Number(match[1]);
-    if (secondOctet >= 16 && secondOctet <= 31) return true;
-  }
-
-  return false;
-}
-
-function hasPublicDashboardAccess(request, password) {
-  const authorization = request.headers.authorization || "";
-  const [scheme, token] = authorization.split(" ");
-  if (scheme !== "Basic" || !token) return false;
-
-  try {
-    const credentials = Buffer.from(token, "base64").toString("utf8");
-    const separator = credentials.indexOf(":");
-    const suppliedPassword =
-      separator === -1 ? credentials : credentials.slice(separator + 1);
-    return suppliedPassword === password;
-  } catch {
-    return false;
-  }
-}
-
-function requirePublicDashboardAccess(request, response, password) {
-  const hostname = String(request.headers.host || "").split(":")[0];
-  if (isPrivateHostname(hostname) || hasPublicDashboardAccess(request, password)) {
-    return true;
-  }
-
-  response.writeHead(401, {
-    "Content-Type": "text/plain; charset=utf-8",
-    "WWW-Authenticate": 'Basic realm="ForzaDash"',
-  });
-  response.end("ForzaDash public access requires a password.");
-  return false;
-}
-
-function getLocalNetworkAddress() {
-  for (const interfaces of Object.values(os.networkInterfaces())) {
-    for (const entry of interfaces || []) {
-      if (entry.family === "IPv4" && !entry.internal) {
-        return entry.address;
-      }
-    }
-  }
-
-  return "127.0.0.1";
-}
-
 const SETTINGS_KEY = "forzadash_settings";
 const SETTINGS_ENV_MAP = {
   dashboardPort: "VITE_DASHBOARD_PORT",
@@ -129,6 +65,18 @@ const SETTINGS_ENV_MAP = {
   backgroundColor: "VITE_BACKGROUND_COLOR",
   spotifyClientId: "VITE_SPOTIFY_CLIENT_ID",
 };
+
+function getSettingsFilePath() {
+  return path.join(app.getPath("userData"), "forzadash-settings.json");
+}
+
+function readSettingsFile() {
+  try {
+    return JSON.parse(fs.readFileSync(getSettingsFilePath(), "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 function readElectronLocalStorageSettings() {
   const userDataPath = app.getPath("userData");
@@ -167,7 +115,7 @@ function readElectronLocalStorageSettings() {
 }
 
 function applySavedSettingsToEnv() {
-  const settings = readElectronLocalStorageSettings();
+  const settings = readSettingsFile() || readElectronLocalStorageSettings();
   if (!settings) return;
 
   for (const [settingKey, envKey] of Object.entries(SETTINGS_ENV_MAP)) {
@@ -291,13 +239,33 @@ try {
 function startDashboardServer() {
   const dashboardRoot = path.join(__dirname, "..", "dist", "app");
   const port = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
-  const publicDashboardPassword =
-    process.env.VITE_PUBLIC_DASHBOARD_PASSWORD || DEFAULT_PUBLIC_DASHBOARD_PASSWORD;
 
   webServer = http.createServer((request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
 
-    if (!requirePublicDashboardAccess(request, response, publicDashboardPassword)) {
+    if (url.pathname === "/api/settings" && request.method === "GET") {
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify(readSettingsFile() || {}));
+      return;
+    }
+
+    if (url.pathname === "/api/settings" && request.method === "POST") {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 10000) request.destroy();
+      });
+      request.on("end", () => {
+        try {
+          const settings = JSON.parse(body || "{}");
+          fs.writeFileSync(getSettingsFilePath(), JSON.stringify(settings, null, 2));
+          response.writeHead(204);
+          response.end();
+        } catch {
+          response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ error: "Invalid settings" }));
+        }
+      });
       return;
     }
 
@@ -306,17 +274,6 @@ function startDashboardServer() {
         response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify(result));
       });
-      return;
-    }
-
-    if (url.pathname === "/api/network-info") {
-      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      response.end(
-        JSON.stringify({
-          localUrl: `http://127.0.0.1:${port}/`,
-          lanUrl: `http://${getLocalNetworkAddress()}:${port}/`,
-        }),
-      );
       return;
     }
 
@@ -347,11 +304,10 @@ function startDashboardServer() {
 
   return new Promise((resolve, reject) => {
     webServer.once("error", reject);
-    webServer.listen(port, LAN_HOST, () => {
+    webServer.listen(port, LOCAL_HOST, () => {
       webServer.off("error", reject);
       resolve(`http://127.0.0.1:${port}/`);
       console.log(`Dashboard listening on http://127.0.0.1:${port}/`);
-      console.log(`LAN dashboard available at http://${getLocalNetworkAddress()}:${port}/`);
     });
   });
 }

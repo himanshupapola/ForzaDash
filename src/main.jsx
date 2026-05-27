@@ -75,6 +75,11 @@ function readSettings() {
 
 function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  }).catch(() => {});
   window.dispatchEvent(
     new CustomEvent("forzadash:settings", { detail: settings }),
   );
@@ -96,37 +101,6 @@ function useSettings() {
   }, []);
 
   return settings;
-}
-
-function useNetworkInfo(settings) {
-  const [networkInfo, setNetworkInfo] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadNetworkInfo() {
-      try {
-        const response = await fetch("/api/network-info");
-        const data = await response.json();
-        if (!cancelled) setNetworkInfo(data);
-      } catch {
-        if (!cancelled) {
-          const port = settings.dashboardPort || DEFAULT_SETTINGS.dashboardPort;
-          setNetworkInfo({
-            localUrl: `http://127.0.0.1:${port}/`,
-            lanUrl: `http://YOUR_PC_IP:${port}/`,
-          });
-        }
-      }
-    }
-
-    loadNetworkInfo();
-    return () => {
-      cancelled = true;
-    };
-  }, [settings.dashboardPort]);
-
-  return networkInfo;
 }
 
 function clamp(value, min, max) {
@@ -170,7 +144,7 @@ function normalizeColor(value, fallback = DEFAULT_SETTINGS.backgroundColor) {
 }
 
 function getServerHostname() {
-  return window.location.hostname || "127.0.0.1";
+  return "127.0.0.1";
 }
 
 function getTelemetryHttpBase(port) {
@@ -1728,7 +1702,6 @@ function MusicPanel({ onOpenSettings }) {
 
 function SettingsModal({ onClose }) {
   const settings = useSettings();
-  const networkInfo = useNetworkInfo(settings);
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(false);
   const spotifyConfigured = Boolean(draft.spotifyClientId?.trim());
@@ -1885,9 +1858,6 @@ function SettingsModal({ onClose }) {
         <p className="settings-note">
           Best viewed fullscreen with F11. Tested at 1280x800 with a Logitech
           G29 wheel.
-        </p>
-        <p className="settings-note">
-          LAN dashboard: {networkInfo?.lanUrl || "checking local network..."}
         </p>
         <div className="settings-actions">
           <button type="button" onClick={resetDefaults}>

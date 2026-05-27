@@ -2,7 +2,6 @@ const dgram = require("node:dgram");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
-const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
@@ -38,22 +37,9 @@ function envPort(name, fallback) {
   return Number.isInteger(port) && port > 0 ? port : fallback;
 }
 
-function getLocalNetworkAddress() {
-  for (const interfaces of Object.values(os.networkInterfaces())) {
-    for (const entry of interfaces || []) {
-      if (entry.family === "IPv4" && !entry.internal) {
-        return entry.address;
-      }
-    }
-  }
-
-  return "127.0.0.1";
-}
-
 loadLocalEnv();
 
-const UDP_HOST = "0.0.0.0";
-const LAN_HOST = "0.0.0.0";
+const LOCAL_HOST = "127.0.0.1";
 // Forza sends raw UDP telemetry packets here
 const UDP_PORT = envPort("VITE_FORZA_UDP_PORT", 1234);
 // Forward the raw packets to another local port for tools like SimHub
@@ -70,12 +56,17 @@ let latestTelemetry = null;
 let lastFuelTelemetry = null;
 const ASSUMED_FUEL_TANK_LITERS = 60;
 const G29_LEDS_ENABLED = process.env.VITE_G29_LEDS_ENABLED !== "false";
+const G29_CONNECT_BLINK_ENABLED =
+  process.env.VITE_G29_CONNECT_BLINK_ENABLED !== "false";
 const G29_VENDOR_ID = 1133;
 const G29_PRODUCT_ID = 49743;
+const G29_ALL_LEDS = 31;
+const G29_NO_LEDS = 0;
 let g29Device = null;
 let g29LastLedSetting = null;
 let g29LastWriteAt = 0;
 let g29UnavailableLogged = false;
+let g29ConnectBlinkActive = false;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -112,6 +103,9 @@ function connectG29Leds() {
     g29Device = new HID.HID(devicePath);
     g29UnavailableLogged = false;
     console.log("Logitech G29 LED output connected");
+    if (G29_CONNECT_BLINK_ENABLED) {
+      startG29ConnectBlink();
+    }
   } catch (error) {
     if (!g29UnavailableLogged) {
       console.warn("Logitech G29 LEDs unavailable:", error.message);
@@ -123,8 +117,45 @@ function connectG29Leds() {
   return g29Device;
 }
 
+function writeG29Leds(setting) {
+  if (!g29Device) return;
+  g29Device.write([0x00, 0xf8, 0x12, setting, 0x00, 0x00, 0x00, 0x01]);
+  g29LastLedSetting = setting;
+  g29LastWriteAt = Date.now();
+}
+
+function startG29ConnectBlink() {
+  g29ConnectBlinkActive = true;
+  let step = 0;
+  const maxSteps = 6;
+  let timer = null;
+
+  const runStep = () => {
+    try {
+      writeG29Leds(step % 2 === 0 ? G29_ALL_LEDS : G29_NO_LEDS);
+    } catch (error) {
+      console.warn("Logitech G29 connect blink failed:", error.message);
+      if (timer) clearInterval(timer);
+      g29ConnectBlinkActive = false;
+      return;
+    }
+
+    step += 1;
+    if (step >= maxSteps) {
+      if (timer) clearInterval(timer);
+      g29ConnectBlinkActive = false;
+    }
+  };
+
+  setTimeout(() => {
+    runStep();
+    timer = setInterval(runStep, 1000);
+  }, 2000);
+}
+
 function setG29Leds(setting) {
   if (!G29_LEDS_ENABLED || !HID) return;
+  if (g29ConnectBlinkActive) return;
 
   const now = Date.now();
   if (setting === g29LastLedSetting && now - g29LastWriteAt < 100) return;
@@ -134,9 +165,7 @@ function setG29Leds(setting) {
   if (!device) return;
 
   try {
-    device.write([0x00, 0xf8, 0x12, setting, 0x00, 0x00, 0x00, 0x01]);
-    g29LastLedSetting = setting;
-    g29LastWriteAt = now;
+    writeG29Leds(setting);
   } catch (error) {
     console.warn("Logitech G29 LED write failed:", error.message);
     try {
@@ -144,6 +173,7 @@ function setG29Leds(setting) {
     } catch {}
     g29Device = null;
     g29LastLedSetting = null;
+    g29ConnectBlinkActive = false;
   }
 }
 
@@ -590,16 +620,13 @@ udp.on("message", (message, remote) => {
   broadcast(latestTelemetry);
 });
 
-telemetryServer.listen(WS_PORT, LAN_HOST, () => {
-  const localAddress = getLocalNetworkAddress();
+telemetryServer.listen(WS_PORT, LOCAL_HOST, () => {
   console.log(`Telemetry WebSocket listening on ws://127.0.0.1:${WS_PORT}`);
-  console.log(`LAN Telemetry WebSocket listening on ws://${localAddress}:${WS_PORT}`);
   console.log(`Hardware temp API listening on http://127.0.0.1:${WS_PORT}/api/hardware-temp`);
-  console.log(`LAN hardware temp API listening on http://${localAddress}:${WS_PORT}/api/hardware-temp`);
 });
 
-udp.bind(UDP_PORT, UDP_HOST, () => {
-  console.log(`Forza UDP listening on ${UDP_HOST}:${UDP_PORT}`);
+udp.bind(UDP_PORT, LOCAL_HOST, () => {
+  console.log(`Forza UDP listening on ${LOCAL_HOST}:${UDP_PORT}`);
   console.log(
     `Forza UDP forwarding to ${UDP_FORWARD_PORTS.map((port) => `127.0.0.1:${port}`).join(", ")}`,
   );
