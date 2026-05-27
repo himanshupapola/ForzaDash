@@ -13,6 +13,9 @@ let dashboardUrl = null;
 let dashboardWindow = null;
 let youtubeMusicWindow = null;
 let youtubeMusicLoaded = false;
+let youtubePreferredVolume = null;
+let youtubePreferredMuted = null;
+let youtubeLastState = null;
 let isQuitting = false;
 
 function isYouTubeMusicUrl(url) {
@@ -98,6 +101,41 @@ const SETTINGS_ENV_MAP = {
 
 function getSettingsFilePath() {
   return path.join(app.getPath("userData"), "forzadash-settings.json");
+}
+
+function getYouTubeStateFilePath() {
+  return path.join(app.getPath("userData"), "forzadash-youtube-state.json");
+}
+
+function readYouTubeStateFile() {
+  try {
+    const data = JSON.parse(fs.readFileSync(getYouTubeStateFilePath(), "utf8"));
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeYouTubeStateFile(state) {
+  try {
+    fs.writeFileSync(getYouTubeStateFilePath(), JSON.stringify(state, null, 2));
+  } catch {}
+}
+
+function rememberYouTubeState(status, currentUrl = "") {
+  if (!status || status.available === false) return;
+  const url = String(currentUrl || "").trim();
+  if (!isControllableYouTubeMusicUrl(url)) return;
+  youtubeLastState = {
+    url,
+    progress: Number.isFinite(status.progress) ? Math.max(0, status.progress) : 0,
+    isPlaying: Boolean(status.isPlaying),
+    title: String(status.title || "").trim(),
+    artist: String(status.artist || "").trim(),
+    duration: Number.isFinite(status.duration) ? Math.max(0, status.duration) : 0,
+    at: Date.now(),
+  };
+  writeYouTubeStateFile(youtubeLastState);
 }
 
 function readSettingsFile() {
@@ -429,7 +467,6 @@ function startDashboardServer() {
         });
       return;
     }
-
     if (url.pathname === "/api/youtube-music/volume") {
       setYouTubeMusicVolume(url.searchParams)
         .then((result) => {
@@ -438,15 +475,11 @@ function startDashboardServer() {
         })
         .catch((error) => {
           response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-          response.end(
-            JSON.stringify({
-              ok: false,
-              error: error?.message || "YouTube Music volume failed",
-            }),
-          );
+          response.end(JSON.stringify({ ok: false, error: error?.message || "YouTube Music volume failed" }));
         });
       return;
     }
+
 
     if (url.pathname === "/api/youtube-music/seek") {
       seekYouTubeMusic(url.searchParams)
@@ -634,8 +667,47 @@ async function openYouTubeMusicWindow() {
   window.show();
   window.focus();
   if (!youtubeMusicLoaded) {
-    await window.loadURL("https://music.youtube.com/");
+    const savedState = youtubeLastState || readYouTubeStateFile();
+    const startUrl =
+      savedState?.url && isControllableYouTubeMusicUrl(savedState.url)
+        ? savedState.url
+        : "https://music.youtube.com/";
+    await window.loadURL(startUrl);
     youtubeMusicLoaded = true;
+    if (savedState && isControllableYouTubeMusicUrl(startUrl)) {
+      const savedProgress = Number(savedState.progress);
+      const shouldPlay = Boolean(savedState.isPlaying);
+      const savedTitle = String(savedState.title || "").trim().toLowerCase();
+      const savedArtist = String(savedState.artist || "").trim().toLowerCase();
+      const savedDuration = Number(savedState.duration);
+      await waitForWindowLoad(window);
+      await window.webContents.executeJavaScript(`
+        (() => {
+          const media = document.querySelector("video, audio");
+          if (!media) return false;
+          const text = (selector) =>
+            document.querySelector(selector)?.textContent?.trim() || "";
+          const currentTitle = text("ytmusic-player-bar .title").toLowerCase();
+          const currentArtist = text("ytmusic-player-bar .byline").toLowerCase();
+          const currentDuration = Number.isFinite(media.duration) ? media.duration * 1000 : 0;
+          const savedTitle = ${JSON.stringify(savedTitle)};
+          const savedArtist = ${JSON.stringify(savedArtist)};
+          const savedDuration = ${JSON.stringify(Number.isFinite(savedDuration) ? savedDuration : 0)};
+          const titleMatches = savedTitle && currentTitle && savedTitle === currentTitle;
+          const artistMatches = savedArtist && currentArtist && savedArtist === currentArtist;
+          const durationClose =
+            savedDuration > 0 &&
+            currentDuration > 0 &&
+            Math.abs(savedDuration - currentDuration) < 2500;
+          const sameTrack = titleMatches || (artistMatches && durationClose) || (titleMatches && durationClose);
+          const p = ${JSON.stringify(Number.isFinite(savedProgress) ? savedProgress : 0)};
+          if (sameTrack && p > 0) media.currentTime = p / 1000;
+          const shouldPlay = ${JSON.stringify(shouldPlay)};
+          if (shouldPlay) media.play?.().catch?.(() => {});
+          return true;
+        })();
+      `).catch(() => {});
+    }
   }
   return { ok: true, opened: true };
 }
@@ -665,6 +737,10 @@ async function logoutYouTubeMusic() {
     });
     await session.clearCache();
   }
+  youtubeLastState = null;
+  try {
+    fs.unlinkSync(getYouTubeStateFilePath());
+  } catch {}
 
   return { ok: true, loggedOut: true };
 }
@@ -680,58 +756,43 @@ function waitForWindowLoad(window) {
 }
 
 async function playRandomYouTubeMusic() {
-  const queries = [
-    "Blinding Lights",
-    "Starboy",
-    "After Hours",
-    "Levitating",
-    "Heat Waves",
-    "The Nights",
-    "Midnight City",
-  ];
-  const query = queries[Math.floor(Math.random() * queries.length)];
+  // Resume user context instead of forcing a hardcoded/random song.
+  const savedState = youtubeLastState || readYouTubeStateFile();
   const window = createYouTubeMusicWindow();
   const shouldShowForLogin = !youtubeMusicLoaded;
   if (shouldShowForLogin) {
     window.show();
     window.focus();
   }
-  await window.loadURL(
-    `https://music.youtube.com/search?q=${encodeURIComponent(query)}`,
-  );
+  const startUrl =
+    savedState?.url && isControllableYouTubeMusicUrl(savedState.url)
+      ? savedState.url
+      : "https://music.youtube.com/";
+  await window.loadURL(startUrl);
   youtubeMusicLoaded = true;
   await waitForWindowLoad(window);
 
   const result = await window.webContents.executeJavaScript(`
     (async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const selectors = [
-        "ytmusic-responsive-list-item-renderer a[href*='watch']",
-        "ytmusic-shelf-renderer a[href*='watch']",
-        "a[href*='watch']"
-      ];
-      let target = null;
-      for (let attempt = 0; attempt < 12 && !target; attempt += 1) {
-        for (const selector of selectors) {
-          target = document.querySelector(selector);
-          if (target) break;
-        }
-        if (!target) await sleep(500);
+      const savedProgress = ${JSON.stringify(
+        Number.isFinite(savedState?.progress) ? savedState.progress : 0,
+      )};
+      if (savedProgress > 0) {
+        const media = document.querySelector("video, audio");
+        if (media) media.currentTime = savedProgress / 1000;
       }
-      if (!target) return { ok: false, error: "No playable result found" };
-      target.click();
-      await sleep(1500);
       const playButton = document.querySelector(
         "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button"
       );
       const label = playButton?.getAttribute("aria-label") || "";
       if (/play/i.test(label)) playButton.click();
       await sleep(700);
+      ${youtubeApplyPreferredVolumeScript()}
       const status = ${youtubeStatusScript};
       return {
         ...status,
-        ok: true,
-        query: ${JSON.stringify(query)}
+        ok: true
       };
     })();
   `);
@@ -772,18 +833,49 @@ const youtubeStatusScript = `(() => {
   try {
     const text = (selector) =>
       document.querySelector(selector)?.textContent?.trim() || "";
+    const playerApi = document.querySelector("#movie_player");
     const image =
       document.querySelector("ytmusic-player-bar img.image")?.src ||
       document.querySelector("ytmusic-player-bar img")?.src ||
       "";
-    const media = document.querySelector("video, audio");
+    const medias = Array.from(document.querySelectorAll("video, audio"));
+    const media =
+      medias.find((item) => !item.paused && !item.ended) ||
+      medias.find(
+        (item) =>
+          !item.ended &&
+          Number.isFinite(item.duration) &&
+          item.duration > 0 &&
+          item.readyState >= 1,
+      ) ||
+      medias[0];
     const playButton = document.querySelector(
       "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button"
     );
     const label = playButton?.getAttribute("aria-label") || "";
-    const duration = Number.isFinite(media?.duration) ? media.duration * 1000 : 0;
-    const progress = Number.isFinite(media?.currentTime) ? media.currentTime * 1000 : 0;
+    const apiDurationSeconds =
+      typeof playerApi?.getDuration === "function"
+        ? Number(playerApi.getDuration())
+        : NaN;
+    const apiProgressSeconds =
+      typeof playerApi?.getCurrentTime === "function"
+        ? Number(playerApi.getCurrentTime())
+        : NaN;
+    const duration =
+      Number.isFinite(apiDurationSeconds) && apiDurationSeconds > 0
+        ? apiDurationSeconds * 1000
+        : Number.isFinite(media?.duration)
+          ? media.duration * 1000
+          : 0;
+    const rawProgress =
+      Number.isFinite(apiProgressSeconds) && apiProgressSeconds >= 0
+        ? apiProgressSeconds * 1000
+        : Number.isFinite(media?.currentTime)
+          ? media.currentTime * 1000
+          : 0;
+    const progress = duration > 0 ? Math.min(duration, Math.max(0, rawProgress)) : 0;
     const volume = Number.isFinite(media?.volume) ? Math.round(media.volume * 100) : 100;
+    const muted = Boolean(media?.muted);
     return {
       ok: true,
       available: true,
@@ -798,7 +890,7 @@ const youtubeStatusScript = `(() => {
       duration,
       progress,
       volume,
-      muted: Boolean(media?.muted),
+      muted,
       isPlaying: /pause/i.test(label) || Boolean(media && !media.paused)
     };
   } catch (error) {
@@ -818,6 +910,60 @@ const youtubeStatusScript = `(() => {
   }
 })()`;
 
+function youtubeApplyPreferredVolumeScript() {
+  return `
+    (() => {
+      const medias = Array.from(document.querySelectorAll("video, audio"));
+      if (!medias.length) return false;
+      const preferredVolume = ${JSON.stringify(youtubePreferredVolume)};
+      const preferredMuted = ${JSON.stringify(youtubePreferredMuted)};
+      const forceMute = typeof preferredVolume === "number" && preferredVolume <= 0;
+      for (const media of medias) {
+        if (typeof preferredVolume === "number") {
+          media.volume = Math.min(1, Math.max(0, preferredVolume / 100));
+        }
+        if (forceMute) {
+          media.muted = true;
+        } else if (typeof preferredMuted === "boolean") {
+          media.muted = preferredMuted;
+        }
+      }
+      const playerApi = document.querySelector("#movie_player");
+      if (playerApi) {
+        if (typeof preferredVolume === "number" && typeof playerApi.setVolume === "function") {
+          playerApi.setVolume(Math.min(100, Math.max(0, Math.round(preferredVolume))));
+        }
+        if (typeof playerApi.mute === "function" && typeof playerApi.unMute === "function") {
+          if (forceMute || preferredMuted === true) playerApi.mute();
+          if (!forceMute && preferredMuted === false) playerApi.unMute();
+        }
+      }
+
+      // Keep enforcing on media lifecycle events to avoid transition blips.
+      if (!window.forzaDashSilenceGuardInstalled) {
+        window.forzaDashSilenceGuardInstalled = true;
+        const enforce = () => {
+          const mediasNow = Array.from(document.querySelectorAll("video, audio"));
+          const vol = window.forzaDashPreferredVolume;
+          const muted = window.forzaDashPreferredMuted;
+          const hardMute = typeof vol === "number" && vol <= 0;
+          for (const m of mediasNow) {
+            if (typeof vol === "number") m.volume = Math.min(1, Math.max(0, vol / 100));
+            if (hardMute) m.muted = true;
+            else if (typeof muted === "boolean") m.muted = muted;
+          }
+        };
+        for (const eventName of ["playing", "loadeddata", "canplay", "timeupdate", "ended"]) {
+          document.addEventListener(eventName, enforce, true);
+        }
+      }
+      window.forzaDashPreferredVolume = preferredVolume;
+      window.forzaDashPreferredMuted = preferredMuted;
+      return true;
+    })();
+  `;
+}
+
 async function getYouTubeMusicStatus() {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
     return { ok: true, available: false, visible: false, isPlaying: false };
@@ -834,14 +980,13 @@ async function getYouTubeMusicStatus() {
       image: "",
       duration: 0,
       progress: 0,
-      volume: 100,
-      muted: false,
     };
   }
-
-  const status = await youtubeMusicWindow.webContents.executeJavaScript(
-    youtubeStatusScript,
+  await youtubeMusicWindow.webContents.executeJavaScript(
+    youtubeApplyPreferredVolumeScript(),
   );
+  const status = await youtubeMusicWindow.webContents.executeJavaScript(youtubeStatusScript);
+  rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
   return {
     ...status,
     available: true,
@@ -917,39 +1062,13 @@ async function controlYouTubeMusic(command) {
       if (command === "repeat") repeatButton()?.click();
 
       await sleep(650);
+      ${youtubeApplyPreferredVolumeScript()}
       return ${youtubeStatusScript};
     })();
-  `);
-}
-
-async function setYouTubeMusicVolume(searchParams) {
-  if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
-    return { ok: false, error: "YouTube Music is not open" };
-  }
-  if (!isControllableYouTubeMusicUrl(youtubeMusicWindow.webContents.getURL())) {
-    return { ok: false, error: "Open YouTube Music to control volume" };
-  }
-
-  const rawVolume = searchParams.get("value");
-  const rawMuted = searchParams.get("muted");
-  const volume = Number(rawVolume);
-  const hasVolume = Number.isFinite(volume);
-  const muted =
-    rawMuted === "true" ? true : rawMuted === "false" ? false : null;
-
-  return youtubeMusicWindow.webContents.executeJavaScript(`
-    (() => {
-      const media = document.querySelector("video, audio");
-      if (!media) return { ok: false, error: "No YouTube Music media found" };
-      if (${JSON.stringify(hasVolume)}) {
-        media.volume = Math.min(1, Math.max(0, ${JSON.stringify(volume)} / 100));
-      }
-      if (${JSON.stringify(muted)} !== null) {
-        media.muted = ${JSON.stringify(muted)};
-      }
-      return ${youtubeStatusScript};
-    })();
-  `);
+  `).then((status) => {
+    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
+    return status;
+  });
 }
 
 async function seekYouTubeMusic(searchParams) {
@@ -967,12 +1086,62 @@ async function seekYouTubeMusic(searchParams) {
 
   return youtubeMusicWindow.webContents.executeJavaScript(`
     (() => {
+      const playerApi = document.querySelector("#movie_player");
       const media = document.querySelector("video, audio");
-      if (!media) return { ok: false, error: "No YouTube Music media found" };
-      media.currentTime = Math.max(0, ${JSON.stringify(positionMs)} / 1000);
+      if (!media && !playerApi) return { ok: false, error: "No YouTube Music media found" };
+      const targetSeconds = Math.max(0, ${JSON.stringify(positionMs)} / 1000);
+      const apiDuration =
+        typeof playerApi?.getDuration === "function"
+          ? Number(playerApi.getDuration())
+          : 0;
+      const mediaDuration = Number.isFinite(media?.duration) ? media.duration : 0;
+      const duration = apiDuration > 0 ? apiDuration : mediaDuration;
+      // Avoid exact-end seeks; they can leave YouTube in a sticky ended state.
+      const maxSeek = duration > 0.35 ? duration - 0.35 : duration;
+      const finalSeek = duration ? Math.min(targetSeconds, maxSeek) : targetSeconds;
+      if (typeof playerApi?.seekTo === "function") {
+        playerApi.seekTo(finalSeek, true);
+      } else if (media) {
+        media.currentTime = finalSeek;
+      }
+      ${youtubeApplyPreferredVolumeScript()}
       return ${youtubeStatusScript};
     })();
-  `);
+  `).then((status) => {
+    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
+    return status;
+  });
+}
+async function setYouTubeMusicVolume(searchParams) {
+  if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
+    return { ok: false, error: "YouTube Music is not open" };
+  }
+  if (!isControllableYouTubeMusicUrl(youtubeMusicWindow.webContents.getURL())) {
+    return { ok: false, error: "Open YouTube Music to control volume" };
+  }
+  const volume = Number(searchParams.get("value"));
+  const rawMuted = searchParams.get("muted");
+  const hasVolume = Number.isFinite(volume);
+  const muted = rawMuted === "true" ? true : rawMuted === "false" ? false : null;
+  if (hasVolume) youtubePreferredVolume = Math.min(100, Math.max(0, volume));
+  if (hasVolume && youtubePreferredVolume === 0 && muted === null) {
+    youtubePreferredMuted = true;
+  }
+  if (muted !== null) youtubePreferredMuted = muted;
+  return youtubeMusicWindow.webContents.executeJavaScript(`
+    (() => {
+      const media = document.querySelector("video, audio");
+      if (!media) return { ok: false, error: "No YouTube Music media found" };
+      const v = ${JSON.stringify(hasVolume ? Math.min(100, Math.max(0, volume)) : null)};
+      const m = ${JSON.stringify(muted)};
+      if (v !== null) media.volume = Math.min(1, Math.max(0, v / 100));
+      if (m !== null) media.muted = m;
+      return ${youtubeStatusScript};
+    })();
+  `).then((status) => {
+    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
+    return status;
+  });
 }
 
 if (singleInstanceLock) {

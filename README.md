@@ -38,9 +38,20 @@ If the dashboard does not react, check that the Data Out port in Forza matches t
 - Tire temperature and suspension panels
 - Live power and torque graph
 - Weather panel with configurable region
+- Demo Drive Mode when no live Forza packets are available
 - Optional Spotify and YouTube Music controls
 - Local-only dashboard and telemetry services
 - Portable Windows build
+
+## Important Note (YouTube Mode)
+
+YouTube Music mode is currently marked as experimental.
+
+- It works for daily use, but may still have edge-case bugs.
+- Timing/seek state around track transitions can occasionally behave unexpectedly.
+- If controls ever get out of sync, use `OPEN YT` and restart playback once.
+
+Spotify mode is generally more stable for precise transport behavior.
 
 ## Supported Games
 
@@ -55,7 +66,7 @@ These can be changed from the app settings panel:
 - Forza UDP Data Out port
 - UDP forward ports
 - Telemetry WebSocket port
-- Spotify setup
+- Demo Drive Mode
 - Music login/logout
 
 Default local dashboard:
@@ -72,6 +83,16 @@ ws://127.0.0.1:17878/
 
 ForzaDash binds its dashboard, telemetry WebSocket, and Forza UDP listener to `127.0.0.1` only. It is not available from public IPs or other devices on the local network.
 
+### Demo Drive Mode
+
+Demo Drive Mode is available from Settings and is useful when Forza is not sending telemetry.
+
+- It generates realistic moving dashboard values (speed, RPM, gear, boost, power, torque, inputs, and forces).
+- It is only usable when live telemetry packets are not arriving.
+- If real telemetry starts, Demo Drive Mode is automatically disabled.
+- Turning Demo Drive Mode off while disconnected resets telemetry back to startup values.
+- Telemetry status still reflects packet reality (`NO PACKETS` / `SERVER OFF`), even while demo data animates.
+
 ## Music For Users
 
 ForzaDash supports two music sources from the music panel: Spotify and YouTube Music. Use the small source button in the music panel header to switch between them.
@@ -86,9 +107,16 @@ YouTube Music works directly inside ForzaDash.
 4. Pick or start music in the YouTube Music window.
 5. Return to ForzaDash and use the dashboard controls.
 
-After music is playing, ForzaDash can show the song title, artist, artwork, progress, and duration. You can use play/pause, previous, next, volume, mute, and click the progress bar to seek.
+After music is playing, ForzaDash can show the song title, artist, artwork, progress, and duration. You can use play/pause, previous, next, volume, and `+10` jump.
 
-`OPEN YT` only opens the YouTube Music window. It does not start music by itself. When music is already playing, this button is hidden to keep the dashboard clean.
+Current YouTube transport behavior:
+
+- Direct clicking on the progress bar is intentionally disabled.
+- Use bottom transport buttons instead.
+- Current YouTube order is: `Volume`, `Previous`, `Play/Pause`, `Next`, `+10`.
+- `+10` is disabled in the final 30 seconds of a track.
+
+`OPEN YT` only opens the YouTube Music window. It does not start music by itself. When playback starts, the button stays briefly and then hides.
 
 Closing the YouTube Music window only hides it. Music can keep playing and ForzaDash can still control it. To fully sign out, open Settings and use `Clear Data`.
 
@@ -96,7 +124,7 @@ Closing the YouTube Music window only hides it. Music can keep playing and Forza
 
 Spotify controls work through your Spotify account and need Spotify playing on a device.
 
-1. Add your Spotify Client ID in Settings if it is not already configured.
+1. Configure `VITE_SPOTIFY_CLIENT_ID` in `.env` (source builds).
 2. Click `Login Spotify` in Settings.
 3. Sign in with Spotify and approve access.
 4. Open Spotify on your PC, phone, browser, or any Spotify Connect device.
@@ -110,7 +138,7 @@ If Spotify says no device is found, open Spotify separately and start any song o
 
 Use `Clear Data` in Settings to clear music login data. This signs out Spotify in ForzaDash and clears the saved YouTube Music session.
 
-## Development
+## Development (For Devs)
 
 Install dependencies:
 
@@ -122,6 +150,12 @@ Start the app in development:
 
 ```bat
 npm run dev
+```
+
+Run Electron locally during development:
+
+```bat
+npm run dev:electron
 ```
 
 Build the web app:
@@ -141,6 +175,17 @@ The EXE is created at:
 ```text
 dist/ForzaDash.exe
 ```
+
+### Dev Notes
+
+- Telemetry source: local Forza Data Out only (`127.0.0.1`).
+- Dashboard can be used without music integrations.
+- YouTube mode is intentionally treated as best-effort and may require occasional playback re-sync.
+- Demo Drive Mode is frontend-synthesized telemetry and intentionally does not mark link as `ONLINE`.
+- Demo Drive Mode auto-disables when live telemetry arrives.
+- When testing music controls, verify both:
+  - cold start state
+  - track transition/end-of-song behavior
 
 ## Spotify Developer Setup
 

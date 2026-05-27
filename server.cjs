@@ -54,6 +54,8 @@ let parsedCount = 0;
 let lastSender = "-";
 let latestTelemetry = null;
 let lastFuelTelemetry = null;
+let smoothedFuelRate = null;
+let smoothedFuelRange = null;
 const ASSUMED_FUEL_TANK_LITERS = 60;
 const G29_LEDS_ENABLED = process.env.VITE_G29_LEDS_ENABLED !== "false";
 const G29_CONNECT_BLINK_ENABLED =
@@ -302,18 +304,42 @@ function deriveFuelMetrics(telemetry) {
   ) {
     const deltaFuel = lastFuelTelemetry.fuel - fuel;
     const deltaDistanceKm = (distance - lastFuelTelemetry.distance) / 1000;
-    if (deltaFuel > 0 && deltaDistanceKm > 0) {
+    if (deltaFuel > 0 && deltaDistanceKm > 0.01) {
       const fractionPerKm = deltaFuel / deltaDistanceKm;
-      const estimatedRangeKm = fuel / fractionPerKm;
-      const fuelRateL100Km = fractionPerKm * ASSUMED_FUEL_TANK_LITERS * 100;
+      const estimatedRangeKm = clamp(fuel / fractionPerKm, 0, 999);
+      const fuelRateL100Km = clamp(
+        fractionPerKm * ASSUMED_FUEL_TANK_LITERS * 100,
+        0,
+        250,
+      );
+      smoothedFuelRate =
+        smoothedFuelRate == null
+          ? fuelRateL100Km
+          : smoothedFuelRate + (fuelRateL100Km - smoothedFuelRate) * 0.08;
+      smoothedFuelRange =
+        smoothedFuelRange == null
+          ? estimatedRangeKm
+          : smoothedFuelRange + (estimatedRangeKm - smoothedFuelRange) * 0.06;
       derived = {
         ...derived,
         fuelRate: hasDirectFuelRate
           ? telemetry.fuelRate
-          : Math.max(0, fuelRateL100Km),
+          : Math.max(0, smoothedFuelRate),
         fuelRange: hasDirectFuelRange
           ? telemetry.fuelRange
-          : Math.max(0, Math.round(estimatedRangeKm)),
+          : Math.max(0, Math.round(smoothedFuelRange)),
+      };
+    } else if (smoothedFuelRate != null || smoothedFuelRange != null) {
+      derived = {
+        ...derived,
+        fuelRate: hasDirectFuelRate
+          ? telemetry.fuelRate
+          : smoothedFuelRate ?? telemetry.fuelRate,
+        fuelRange: hasDirectFuelRange
+          ? telemetry.fuelRange
+          : smoothedFuelRange == null
+            ? telemetry.fuelRange
+            : Math.round(smoothedFuelRange),
       };
     }
   }

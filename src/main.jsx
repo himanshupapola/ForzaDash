@@ -3,8 +3,10 @@ import { createRoot } from "react-dom/client";
 import {
   Car,
   Heart,
+  Minus,
   Pause,
   Play,
+  Plus,
   Repeat,
   Shuffle,
   SkipBack,
@@ -56,6 +58,8 @@ const fallbackTelemetry = {
 
 const SETTINGS_KEY = "forzadash_settings";
 const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
+const YOUTUBE_VOLUME_KEY = "forzadash_youtube_volume";
+const YOUTUBE_MUTED_KEY = "forzadash_youtube_muted";
 const DEFAULT_SETTINGS = {
   weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
@@ -64,8 +68,49 @@ const DEFAULT_SETTINGS = {
   forzaUdpForwardPort2: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT_2 || "1236",
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
+  demoDriveMode: false,
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
+
+function createDemoTelemetry(frame) {
+  const t = frame / 10;
+  const speedKmh = clamp(
+    82 + Math.sin(t * 0.34) * 46 + Math.sin(t * 0.1) * 18,
+    0,
+    248,
+  );
+  const maxRpm = 8600;
+  const rpm = clamp(1500 + speedKmh * 36 + Math.sin(t * 1.45) * 520, 900, maxRpm);
+  const gear = clamp(Math.floor(speedKmh / 34) + 1, 1, 7);
+  const throttle = clamp(46 + Math.sin(t * 1.1) * 36, 4, 100);
+  const brake = clamp(Math.sin(t * 0.7 + 0.8) > 0.82 ? 22 : 0, 0, 100);
+  const clutch = clamp(Math.sin(t * 0.45 + 1.7) * 8 + 6, 0, 32);
+  const boostBar = clamp(0.2 + throttle * 0.015 + Math.sin(t * 2.1) * 0.09, 0, 2);
+  const powerHp = clamp(95 + (rpm / maxRpm) * 510 + throttle * 1.15, 70, 760);
+  const torqueNm = clamp(170 + (rpm / maxRpm) * 570 + throttle * 1.55, 120, 980);
+
+  return {
+    ...fallbackTelemetry,
+    status: "DEMO",
+    speedKmh,
+    rpm,
+    maxRpm,
+    gear,
+    powerHp,
+    torqueNm,
+    boostBar,
+    throttle,
+    brake,
+    clutch,
+    steer: Math.round(Math.sin(t * 0.8) * 68),
+    accelerationX: Math.sin(t * 1.22) * 3.3,
+    accelerationY: Math.sin(t * 0.4) * 0.9,
+    accelerationZ: Math.cos(t * 1.02) * 2.1,
+    rawCount: frame,
+    parsedCount: frame,
+    lastSender: "DEMO",
+  };
+}
 
 function readSettings() {
   try {
@@ -157,6 +202,13 @@ function formatValue(value, unit = "", digits = 0) {
 function normalizeColor(value, fallback = DEFAULT_SETTINGS.backgroundColor) {
   const color = String(value || "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+}
+function readStoredYouTubeVolume() {
+  const value = Number(localStorage.getItem(YOUTUBE_VOLUME_KEY));
+  return Number.isFinite(value) ? clamp(value, 0, 100) : 100;
+}
+function readStoredYouTubeMuted() {
+  return localStorage.getItem(YOUTUBE_MUTED_KEY) === "true";
 }
 
 function getServerHostname() {
@@ -546,6 +598,63 @@ function getSuspensionTravel(telemetry) {
     return rawValues.map(formatSuspensionTravel);
   }
   return deriveEstimatedSuspension(telemetry).map(formatSuspensionTravel);
+}
+
+function hasDirectSuspensionTravel(telemetry) {
+  return [
+    telemetry.suspensionTravelMetersFrontLeft,
+    telemetry.suspensionTravelMetersFrontRight,
+    telemetry.suspensionTravelMetersRearLeft,
+    telemetry.suspensionTravelMetersRearRight,
+  ].some((value) => Number.isFinite(Number(value)) && Math.abs(Number(value)) > 0.001);
+}
+
+function calculateDriftAngle(telemetry) {
+  const lateral = Number(telemetry.velocityX) || 0;
+  const forward = Number(telemetry.velocityZ) || 0;
+  const speed = Math.hypot(lateral, forward);
+  if (speed >= 3) {
+    return clamp(
+      Math.round(Math.abs(Math.atan2(lateral, Math.abs(forward))) * (180 / Math.PI)),
+      0,
+      90,
+    );
+  }
+
+  return clamp(
+    Math.round(
+      Math.abs((telemetry.steer || 0) / 127) *
+        clamp((telemetry.speedKmh || 0) / 80, 0, 1) *
+        28,
+    ),
+    0,
+    45,
+  );
+}
+
+function getGForces(telemetry) {
+  return {
+    lateral: clamp((Number(telemetry.accelerationX) || 0) / 9.80665, -3, 3),
+    longitudinal: clamp((Number(telemetry.accelerationZ) || 0) / 9.80665, -3, 3),
+  };
+}
+
+function getSurfaceState(telemetry) {
+  const rumble = [
+    telemetry.wheelOnRumbleStripFrontLeft,
+    telemetry.wheelOnRumbleStripFrontRight,
+    telemetry.wheelOnRumbleStripRearLeft,
+    telemetry.wheelOnRumbleStripRearRight,
+  ].some((value) => Number(value) === 1);
+  const puddle = [
+    telemetry.wheelInPuddleFrontLeft,
+    telemetry.wheelInPuddleFrontRight,
+    telemetry.wheelInPuddleRearLeft,
+    telemetry.wheelInPuddleRearRight,
+  ].some((value) => Number(value) === 1);
+  if (puddle) return "PUDDLE";
+  if (rumble) return "RUMBLE";
+  return "CLEAN";
 }
 
 function deriveEstimatedSuspension(telemetry) {
@@ -1000,6 +1109,7 @@ function App() {
   const weather = useWeather(settings);
   const hardwareTemperature = useHardwareTemperature();
   const clock = useClock();
+  const demoFrameRef = useRef(0);
 
   useEffect(() => {
     function toggleFullscreen(event) {
@@ -1060,6 +1170,25 @@ function App() {
   }, [settings.telemetryWsPort]);
 
   const online = lastPacketAt && Date.now() - lastPacketAt < 2500;
+
+  useEffect(() => {
+    if (!settings.demoDriveMode) return undefined;
+    if (online) {
+      saveSettings({ ...settings, demoDriveMode: false });
+      return undefined;
+    }
+    const id = setInterval(() => {
+      demoFrameRef.current += 1;
+      setTelemetry(createDemoTelemetry(demoFrameRef.current));
+    }, 100);
+    return () => clearInterval(id);
+  }, [settings, online]);
+
+  useEffect(() => {
+    if (!settings.demoDriveMode && !online) {
+      setTelemetry(fallbackTelemetry);
+    }
+  }, [settings.demoDriveMode, online]);
   const telemetryStatus = !telemetryServerOnline
     ? "SERVER OFF"
     : online
@@ -1099,7 +1228,12 @@ function App() {
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          telemetryOnline={Boolean(online)}
+        />
+      )}
     </main>
   );
 }
@@ -1148,6 +1282,7 @@ function TopBar({ online, telemetryStatus, weather, clock }) {
 
 function TelemetryPanel({ telemetry, gear }) {
   const { fuelRange } = getFuelInfo(telemetry);
+  const reverseGear = gear === "R";
   const reportedDistance = getTelemetryValue(
     telemetry,
     ["distance", "distanceKm", "distance_km", "odometer"],
@@ -1224,7 +1359,7 @@ function TelemetryPanel({ telemetry, gear }) {
       <div className="hero-telemetry">
         <div>
           <span>GEAR</span>
-          <div className="gear-hero-row">
+          <div className={`gear-hero-row ${reverseGear ? "is-reverse" : ""}`}>
             <strong>{gear}</strong>
           </div>
           <em>MANUAL</em>
@@ -1277,7 +1412,8 @@ function MiniStat({ label, value, unit }) {
 }
 
 function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
-  const gearMaxSpeeds = {
+  const reverseGear = gear === "R";
+  const fallbackGearMaxSpeeds = {
     1: 65,
     2: 105,
     3: 150,
@@ -1290,13 +1426,40 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
     10: 465,
   };
   const gearNumber = Number(gear);
-  const gearMaxSpeed = gearMaxSpeeds[gearNumber] ?? 340;
+  const liveRpmRatio = clamp(
+    (telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 10000, 1),
+    0,
+    1,
+  );
+  const learnedGearMaxRef = useRef({});
+  const fallbackGearMaxSpeed = fallbackGearMaxSpeeds[gearNumber] ?? 340;
+  const canLearnGear =
+    Number.isFinite(gearNumber) &&
+    gearNumber > 0 &&
+    speed > 8 &&
+    liveRpmRatio > 0.22;
+  if (canLearnGear) {
+    const estimatedMaxSpeed = speed / Math.max(liveRpmRatio, 0.12);
+    const saneEstimate = clamp(
+      estimatedMaxSpeed,
+      Math.max(30, speed),
+      Math.max(fallbackGearMaxSpeed * 1.45, speed + 20),
+    );
+    const previousMax = learnedGearMaxRef.current[gearNumber] || saneEstimate;
+    const learnRate = liveRpmRatio > 0.72 ? 0.18 : 0.06;
+    learnedGearMaxRef.current[gearNumber] =
+      previousMax + (saneEstimate - previousMax) * learnRate;
+  }
+  const gearMaxSpeed =
+    learnedGearMaxRef.current[gearNumber] || fallbackGearMaxSpeed;
   const throttleRatio = clamp((telemetry.throttle || 0) / 100, 0, 1);
   const brakeRatio = clamp((telemetry.brake || 0) / 100, 0, 1);
-  const driveGearRatio = Number.isFinite(gearNumber)
-    ? clamp(speed / gearMaxSpeed, 0, 1)
+  const driveGearRatio = Number.isFinite(gearNumber) && gearNumber > 0
+    ? clamp(speed / Math.max(gearMaxSpeed, 1), 0, 1)
     : 0;
-  const gearSpeedRatio = driveGearRatio;
+  const rpmNeedleRatio =
+    speed > 4 || throttleRatio > 0.08 ? liveRpmRatio : 0;
+  const gearSpeedRatio = Math.max(driveGearRatio, rpmNeedleRatio);
   const needleRatioRef = useRef(0);
   const needleTimeRef = useRef(Date.now());
   const needleNow = Date.now();
@@ -1317,27 +1480,34 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
     clamp((needleRatioRef.current - 0.88) / 0.12, 0, 1) * throttleRatio;
   const needleBounce =
     limiterIntensity *
-    (Math.sin(needleNow / 58) * 2.4 + Math.sin(needleNow / 31) * 1.2);
-  const needleAngle = 183 + needleRatioRef.current * 200 + needleBounce;
+    (Math.sin(needleNow / 58) * 3.8 + Math.sin(needleNow / 31) * 2.0);
+  const needleStartAngle = 183;
+  const needleSweepAngle = 220;
+  const needleAngle =
+    needleStartAngle + needleRatioRef.current * needleSweepAngle + needleBounce;
   const needleHot = needleRatioRef.current > 0.5;
   const forceFullSpeedGlow = false;
+  const shiftLightRatio = Math.max(needleRatioRef.current, rpmNeedleRatio);
+  const glowFillRatio = clamp(shiftLightRatio / 0.9, 0, 1);
   const speedGlowProgress = forceFullSpeedGlow
     ? 100
-    : clamp(needleRatioRef.current * 100, 0, 100);
+    : glowFillRatio * 100;
   const speedGlowHot = forceFullSpeedGlow
     ? 1
-    : clamp((needleRatioRef.current - 0.62) / 0.38, 0, 1);
+    : clamp((shiftLightRatio - 0.62) / 0.38, 0, 1);
   const speedGlowVisible = forceFullSpeedGlow
     ? 1
-    : clamp((needleRatioRef.current - 0.018) / 0.04, 0, 1);
+    : clamp((shiftLightRatio - 0.018) / 0.04, 0, 1);
   const lastGForceRef = useRef({
     at: Date.now(),
     speedKmh: telemetry.speedKmh || 0,
     value: 0,
+    lateral: 0,
+    longitudinal: 0,
   });
+  const packetForces = getGForces(telemetry);
   const packetGForce =
-    Math.hypot(telemetry.accelerationX || 0, telemetry.accelerationZ || 0) /
-    9.80665;
+    Math.hypot(packetForces.lateral || 0, packetForces.longitudinal || 0);
   const gNow = Date.now();
   const gElapsed = clamp((gNow - lastGForceRef.current.at) / 1000, 0.016, 0.25);
   const speedDeltaMps =
@@ -1351,18 +1521,24 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
     "accelerationX",
     4.2,
   );
+  lastGForceRef.current.lateral = smoothValue(
+    lastGForceRef.current.lateral,
+    packetForces.lateral,
+    gElapsed,
+    "accelerationX",
+    5.2,
+  );
+  lastGForceRef.current.longitudinal = smoothValue(
+    lastGForceRef.current.longitudinal,
+    packetForces.longitudinal,
+    gElapsed,
+    "accelerationZ",
+    5.2,
+  );
   lastGForceRef.current.at = gNow;
   lastGForceRef.current.speedKmh = telemetry.speedKmh || 0;
   const gForce = lastGForceRef.current.value;
-  const driftAngle = clamp(
-    Math.round(
-      Math.abs((telemetry.steer || 0) / 127) *
-        clamp(telemetry.speedKmh / 80, 0, 1) *
-        28,
-    ),
-    0,
-    45,
-  );
+  const driftAngle = calculateDriftAngle(telemetry);
   const realTempValue = getTelemetryValue(
     telemetry,
     ["engineTemp", "coolantTemp", "temp", "temperature"],
@@ -1371,11 +1547,7 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
   const derivedTempTarget = clamp(
     82 +
       clamp(telemetry.throttle || 0, 0, 100) * 0.14 +
-      clamp(
-        (telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 10000, 1),
-        0,
-        1,
-      ) *
+      liveRpmRatio *
         18 +
       clamp(telemetry.boostBar || 0, 0, 2) * 2 -
       clamp(telemetry.speedKmh || 0, 0, 260) * 0.025,
@@ -1461,7 +1633,7 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
           </div>
 
           <div className="lower-center">
-            <div className="lower-gear">
+            <div className={`lower-gear ${reverseGear ? "is-reverse" : ""}`}>
               <strong>{gear}</strong>
               <span>GEAR</span>
             </div>
@@ -1507,11 +1679,16 @@ function MusicPanel({ onOpenSettings }) {
   );
   const [youtubeTrack, setYoutubeTrack] = useState(null);
   const [youtubeWindowVisible, setYoutubeWindowVisible] = useState(false);
-  const [youtubeVolume, setYoutubeVolume] = useState(100);
-  const [youtubeMuted, setYoutubeMuted] = useState(false);
+  const [keepYouTubeOpenButtonVisible, setKeepYouTubeOpenButtonVisible] =
+    useState(false);
+  const wasYouTubePlayingRef = useRef(false);
+  const openButtonTimerRef = useRef(null);
+  const [youtubeVolume, setYoutubeVolume] = useState(readStoredYouTubeVolume);
+  const [youtubeMuted, setYoutubeMuted] = useState(readStoredYouTubeMuted);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [repeatMode, setRepeatMode] = useState("off");
+  const lastYouTubeTrackKeyRef = useRef("");
 
   async function refreshPlayback() {
     if (!configured) return;
@@ -1577,14 +1754,10 @@ function MusicPanel({ onOpenSettings }) {
   useEffect(() => {
     localStorage.setItem(MUSIC_PROVIDER_KEY, musicProvider);
   }, [musicProvider]);
-
   useEffect(() => {
     function closeVolume(event) {
-      if (!event.target?.closest?.(".youtube-volume-control")) {
-        setVolumeOpen(false);
-      }
+      if (!event.target?.closest?.(".youtube-volume-control")) setVolumeOpen(false);
     }
-
     window.addEventListener("pointerdown", closeVolume);
     return () => window.removeEventListener("pointerdown", closeVolume);
   }, []);
@@ -1601,11 +1774,34 @@ function MusicPanel({ onOpenSettings }) {
           "YouTube Music status failed",
         );
         if (!cancelled && result.ok && result.available !== false) {
-          setYoutubeTrack(result);
+          const nextTitle = String(result.title || "").trim().toLowerCase();
+          const nextArtist = String(result.artist || "").trim().toLowerCase();
+          const nextDuration = Number(result.duration) || 0;
+          const nextTrackKey = `${nextTitle}|${nextArtist}|${nextDuration}`;
+          const previousTrackKey = lastYouTubeTrackKeyRef.current;
+          const trackChanged =
+            Boolean(previousTrackKey) &&
+            Boolean(nextTrackKey) &&
+            previousTrackKey !== nextTrackKey;
+          const normalizedResult = { ...result };
+          if (trackChanged) {
+            const progress = Number(result.progress) || 0;
+            const duration = Number(result.duration) || 0;
+            const progressRatio =
+              duration > 0 ? progress / duration : 0;
+            // If a new song appears with carried-over mid/end progress, reset.
+            if (progressRatio > 0.18) {
+              normalizedResult.progress = 0;
+            }
+          }
+          lastYouTubeTrackKeyRef.current = nextTrackKey;
+          setYoutubeTrack(normalizedResult);
           setYoutubeMusicPlaying(Boolean(result.isPlaying));
           setYoutubeWindowVisible(Boolean(result.visible));
-          setYoutubeVolume(result.volume ?? 100);
-          setYoutubeMuted(Boolean(result.muted));
+          if (!volumeOpen) {
+            setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : readStoredYouTubeVolume());
+            setYoutubeMuted(Boolean(result.muted));
+          }
         }
       } catch {}
     }
@@ -1616,24 +1812,40 @@ function MusicPanel({ onOpenSettings }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [musicProvider]);
+  }, [musicProvider, volumeOpen]);
 
   useEffect(() => {
-    if (musicProvider !== "youtube" || !youtubeMusicPlaying) return undefined;
-    const id = setInterval(() => {
-      setYoutubeTrack((current) => {
-        if (!current?.duration) return current;
-        return {
-          ...current,
-          progress: Math.min(
-            current.duration,
-            (current.progress || 0) + 250,
-          ),
-        };
-      });
-    }, 250);
-    return () => clearInterval(id);
-  }, [musicProvider, youtubeMusicPlaying]);
+    const wasPlaying = wasYouTubePlayingRef.current;
+    const isNowPlaying = youtubeMusicPlaying;
+
+    if (!wasPlaying && isNowPlaying) {
+      setKeepYouTubeOpenButtonVisible(true);
+      if (openButtonTimerRef.current) {
+        clearTimeout(openButtonTimerRef.current);
+      }
+      openButtonTimerRef.current = setTimeout(() => {
+        setKeepYouTubeOpenButtonVisible(false);
+      }, 3000);
+    } else if (!isNowPlaying) {
+      setKeepYouTubeOpenButtonVisible(false);
+      if (openButtonTimerRef.current) {
+        clearTimeout(openButtonTimerRef.current);
+        openButtonTimerRef.current = null;
+      }
+    }
+
+    wasYouTubePlayingRef.current = isNowPlaying;
+  }, [youtubeMusicPlaying]);
+
+  useEffect(
+    () => () => {
+      if (openButtonTimerRef.current) clearTimeout(openButtonTimerRef.current);
+    },
+    [],
+  );
+
+  // YouTube progress is sourced from backend status polling to avoid drift/stuck
+  // behavior at track boundaries and near end-of-track seeks.
 
   async function runCommand(command) {
     if (!spotifyReady) {
@@ -1779,7 +1991,7 @@ function MusicPanel({ onOpenSettings }) {
       );
       setYoutubeTrack(result);
       setYoutubeMusicPlaying(Boolean(result.isPlaying));
-      setYoutubeVolume(result.volume ?? youtubeVolume);
+      setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : youtubeVolume);
       setYoutubeMuted(Boolean(result.muted));
       setYoutubeTestStatus(
         result.title ? `YouTube: ${result.title}` : "YouTube Music",
@@ -1788,53 +2000,34 @@ function MusicPanel({ onOpenSettings }) {
       setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
     }
   }
-
   async function setYouTubeVolume(value, muted = youtubeMuted) {
     const nextVolume = clamp(Number(value), 0, 100);
+    localStorage.setItem(YOUTUBE_VOLUME_KEY, String(nextVolume));
+    localStorage.setItem(YOUTUBE_MUTED_KEY, String(Boolean(muted)));
     setYoutubeVolume(nextVolume);
     setYoutubeMuted(Boolean(muted));
     try {
       const response = await fetch(
-        `/api/youtube-music/volume?value=${encodeURIComponent(
-          nextVolume,
-        )}&muted=${encodeURIComponent(Boolean(muted))}`,
+        `/api/youtube-music/volume?value=${encodeURIComponent(nextVolume)}&muted=${encodeURIComponent(Boolean(muted))}`,
       );
       const result = await readJsonResponse(response, "Volume failed");
       setYoutubeTrack(result);
-      setYoutubeVolume(result.volume ?? nextVolume);
+      setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : nextVolume);
       setYoutubeMuted(Boolean(result.muted));
     } catch (error) {
       setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
     }
   }
-
   function toggleYouTubeMute() {
     setYouTubeVolume(youtubeVolume, !youtubeMuted);
   }
 
   async function seekPlayback(event) {
+    if (isYouTube) return;
+
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     const position = ratio * duration;
-
-    if (isYouTube) {
-      setYoutubeTrack((current) => ({
-        ...(current || {}),
-        progress: position,
-        duration,
-      }));
-      try {
-        const response = await fetch(
-          `/api/youtube-music/seek?position=${encodeURIComponent(position)}`,
-        );
-        const result = await readJsonResponse(response, "YouTube seek failed");
-        setYoutubeTrack(result);
-        setYoutubeMusicPlaying(Boolean(result.isPlaying));
-      } catch (error) {
-        setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
-      }
-      return;
-    }
 
     if (!spotifyReady) {
       const deviceReady = await ensureSpotifyDevice();
@@ -1854,6 +2047,28 @@ function MusicPanel({ onOpenSettings }) {
     const result = await seekSpotify(position);
     if (result.status >= 400 && result.status !== 204) {
       setSpotifyError(result.data?.error?.message || "Spotify seek failed");
+    }
+  }
+
+  async function jumpYouTubeBy(deltaMs) {
+    if (!isYouTube) return;
+    const currentProgress = Number(youtubeTrack?.progress) || 0;
+    const currentDuration = Number(youtubeTrack?.duration) || 0;
+    const nextPosition = clamp(currentProgress + deltaMs, 0, currentDuration || 0);
+    setYoutubeTrack((current) => ({
+      ...(current || {}),
+      progress: nextPosition,
+      duration: currentDuration || current?.duration || 0,
+    }));
+    try {
+      const response = await fetch(
+        `/api/youtube-music/seek?position=${encodeURIComponent(nextPosition)}`,
+      );
+      const result = await readJsonResponse(response, "YouTube jump failed");
+      setYoutubeTrack(result);
+      setYoutubeMusicPlaying(Boolean(result.isPlaying));
+    } catch (error) {
+      setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
     }
   }
 
@@ -1878,6 +2093,8 @@ function MusicPanel({ onOpenSettings }) {
     ? youtubeTrack?.progress || 0
     : displayProgress || playback?.progress_ms || 0;
   const progressPct = clamp((progress / duration) * 100, 0, 100);
+  const remainingMs = Math.max(0, duration - progress);
+  const canJumpForwardYouTube = remainingMs > 30000;
   const providerStatus = isYouTube
     ? youtubeTestStatus || youtubeTrack?.album || "YouTube Music ready"
     : spotifyError || album;
@@ -1890,29 +2107,9 @@ function MusicPanel({ onOpenSettings }) {
       ? () => runCommand("toggle")
       : loginSpotify;
 
-  function openSelectedMusicSource(event) {
-    if (
-      event.target.closest(
-        "button, input, a, [role='button'], .progress, .youtube-volume-control",
-      )
-    ) {
-      return;
-    }
-
-    if (isYouTube) {
-      if (!youtubeMusicPlaying) openYouTubeMusic();
-      return;
-    }
-
-    if (configured && !spotifyLoggedIn) {
-      loginSpotify();
-    }
-  }
-
   return (
     <section
       className={`glass-panel music-panel ${isYouTube ? "youtube-mode" : ""}`}
-      onClick={openSelectedMusicSource}
     >
       <div className="panel-title">
         {isYouTube ? (
@@ -1921,7 +2118,7 @@ function MusicPanel({ onOpenSettings }) {
           <img className="spotify-logo" src={spotifyLogo} alt="" />
         )}
         <h2>{isYouTube ? "YOUTUBE" : "SPOTIFY"}</h2>
-        {isYouTube && !youtubeMusicPlaying && (
+        {isYouTube && (!youtubeMusicPlaying || keepYouTubeOpenButtonVisible) && (
           <button
             className="youtube-open-button"
             type="button"
@@ -1931,11 +2128,12 @@ function MusicPanel({ onOpenSettings }) {
           </button>
         )}
         <button
-          className="provider-toggle"
+          className={`provider-toggle ${isYouTube && youtubeMusicPlaying ? "is-hidden" : ""}`}
           type="button"
           aria-label={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
           title={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
           onClick={() => setMusicProvider(isYouTube ? "spotify" : "youtube")}
+          disabled={isYouTube && youtubeMusicPlaying}
         >
           {isYouTube ? (
             <img className="provider-toggle-logo" src={spotifyLogo} alt="" />
@@ -1964,7 +2162,7 @@ function MusicPanel({ onOpenSettings }) {
         <div className="track-copy">
           <strong>{title}</strong>
           <span>{artist}</span>
-          <em className="spotify-status">{providerStatus}</em>
+          {!isYouTube && <em className="spotify-status">{providerStatus}</em>}
         </div>
         <Heart className="heart" fill="currentColor" />
       </div>
@@ -1997,6 +2195,20 @@ function MusicPanel({ onOpenSettings }) {
             <Shuffle />
           </button>
         )}
+        {isYouTube && (
+          <div className="youtube-volume-control">
+            <button type="button" className="side-control" aria-label="YouTube Music volume" onClick={() => setVolumeOpen((v) => !v)} onDoubleClick={toggleYouTubeMute}>
+              {youtubeMuted || youtubeVolume === 0 ? <VolumeX /> : <Volume2 />}
+            </button>
+            {volumeOpen && (
+              <div className="youtube-volume-popover">
+                <button type="button" aria-label="Raise YouTube Music volume" onClick={() => setYouTubeVolume(youtubeVolume + 10, false)}><Plus /></button>
+                <strong>{youtubeMuted ? 0 : youtubeVolume}%</strong>
+                <button type="button" aria-label="Lower YouTube Music volume" onClick={() => setYouTubeVolume(youtubeVolume - 10, false)}><Minus /></button>
+              </div>
+            )}
+          </div>
+        )}
         <button
           type="button"
           aria-label="Previous track"
@@ -2027,6 +2239,22 @@ function MusicPanel({ onOpenSettings }) {
         >
           <SkipForward />
         </button>
+        {isYouTube && (
+          <button
+            type="button"
+            className="jump-control"
+            aria-label="Jump forward 10 seconds"
+            title={
+              canJumpForwardYouTube
+                ? "+10 seconds"
+                : "Jump disabled in last 30 seconds"
+            }
+            disabled={!canJumpForwardYouTube}
+            onClick={() => jumpYouTubeBy(10000)}
+          >
+            +10
+          </button>
+        )}
         {!isYouTube && (
           <button
             type="button"
@@ -2038,53 +2266,17 @@ function MusicPanel({ onOpenSettings }) {
             <Repeat />
           </button>
         )}
-        {isYouTube && (
-          <div className="youtube-volume-control">
-            <button
-              type="button"
-              className="side-control"
-              aria-label={youtubeMuted ? "Unmute YouTube Music" : "YouTube Music volume"}
-              title={youtubeMuted ? "Unmute" : "Volume"}
-              onClick={() => setVolumeOpen((current) => !current)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                toggleYouTubeMute();
-              }}
-              onDoubleClick={toggleYouTubeMute}
-            >
-              {youtubeMuted || youtubeVolume === 0 ? <VolumeX /> : <Volume2 />}
-            </button>
-            {volumeOpen && (
-              <div className="youtube-volume-popover">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={youtubeMuted ? 0 : youtubeVolume}
-                  aria-label="YouTube Music volume"
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    setYouTubeVolume(value, false);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </section>
   );
 }
 
-function SettingsModal({ onClose }) {
+function SettingsModal({ onClose, telemetryOnline = false }) {
   const settings = useSettings();
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(false);
   const spotifyConfigured = Boolean(draft.spotifyClientId?.trim());
   const spotifyLoggedIn = hasSpotifyLogin();
-  const maskedSpotifyClientId = draft.spotifyClientId
-    ? `${draft.spotifyClientId.slice(1, 5)}XXXXXXXXXXXXX`
-    : "";
 
   useEffect(() => {
     setDraft(settings);
@@ -2113,6 +2305,7 @@ function SettingsModal({ onClose }) {
       telemetryWsPort:
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
       spotifyClientId: draft.spotifyClientId.trim(),
+      demoDriveMode: telemetryOnline ? false : Boolean(draft.demoDriveMode),
       backgroundColor: normalizeColor(draft.backgroundColor),
     });
     setSaved(true);
@@ -2214,8 +2407,15 @@ function SettingsModal({ onClose }) {
             />
           </label>
           <label>
-            <span>Spotify Client ID</span>
-            <input value={maskedSpotifyClientId} readOnly />
+            <span>Demo Drive Mode</span>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.demoDriveMode)}
+              disabled={telemetryOnline}
+              onChange={(event) =>
+                updateField("demoDriveMode", event.target.checked)
+              }
+            />
           </label>
           <label>
             <span>Background Color</span>
@@ -2297,6 +2497,12 @@ function BottomSystems({ telemetry }) {
   lastTimestampRef.current = now;
 
   const tireTemps = (() => {
+    const direct = getTireTemps(telemetry);
+    if (getTireTempValues(telemetry)) {
+      lastTireTempsRef.current = direct.map(parseTireTemp);
+      return direct;
+    }
+
     const modeled = updateModeledTireTemps(
       telemetry,
       lastTireTempsRef.current,
@@ -2307,6 +2513,12 @@ function BottomSystems({ telemetry }) {
   })();
 
   const suspensionTravel = (() => {
+    const direct = getSuspensionTravel(telemetry);
+    if (getSuspensionValues(telemetry)) {
+      lastSuspensionRef.current = direct.map(parseSuspensionTravel);
+      return direct;
+    }
+
     const modeled = updateModeledSuspensionTravel(
       telemetry,
       lastSuspensionRef.current,
