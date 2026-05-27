@@ -934,6 +934,11 @@ h3 {
   text-shadow: 0 0 14px rgba(37, 200, 255, 0.24);
 }
 
+.youtube-mode .panel-title h2 {
+  color: #ff3d4f;
+  text-shadow: 0 0 14px rgba(255, 61, 79, 0.24);
+}
+
 .spotify-logo {
   width: clamp(24px, 1.55vw, 30px);
   height: clamp(24px, 1.55vw, 30px);
@@ -944,8 +949,63 @@ h3 {
   pointer-events: none;
 }
 
-.settings-trigger {
+.provider-icon {
+  width: clamp(24px, 1.55vw, 30px);
+  height: clamp(24px, 1.55vw, 30px);
+  flex: 0 0 auto;
+}
+
+.panel-title .youtube-provider-icon {
+  color: #ff3d4f;
+  stroke: #ff3d4f;
+  filter: drop-shadow(0 0 8px rgba(255, 61, 79, 0.32));
+}
+
+.youtube-mode .provider-toggle {
+  color: #ff3d4f;
+}
+
+.provider-toggle {
+  width: 34px;
+  height: 30px;
   margin-left: auto;
+  border-radius: 6px;
+  color: #ff3d4f;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  place-items: center;
+}
+
+.provider-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.provider-toggle-logo {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+}
+
+.music-controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.youtube-open-button {
+  height: 28px;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #fff;
+  background: rgba(255, 61, 79, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.settings-trigger {
   width: 44px;
   height: 30px;
   display: inline-flex;
@@ -980,7 +1040,7 @@ h3 {
 }
 
 .settings-modal {
-  width: min(560px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   overflow: auto;
   border: 1px solid rgba(43, 192, 255, 0.16);
@@ -1066,7 +1126,7 @@ h3 {
 
 .settings-actions {
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .settings-actions button:disabled {
@@ -1200,6 +1260,7 @@ h3 {
   background: rgba(255, 255, 255, 0.13);
   margin: clamp(14px, 1.7vh, 22px) clamp(42px, 3.2vw, 62px) 0;
   position: relative;
+  cursor: pointer;
 }
 
 .progress::before,
@@ -1309,6 +1370,74 @@ h3 {
   background: rgba(84, 191, 177, 0.12);
   border-radius: 999px;
   box-shadow: 0 0 14px rgba(84, 191, 177, 0.16);
+}
+
+.youtube-volume-control {
+  position: relative;
+  width: clamp(20px, 1.25vw, 24px);
+  height: clamp(20px, 1.25vw, 24px);
+  display: grid;
+  place-items: center;
+}
+
+.youtube-volume-popover {
+  position: absolute;
+  bottom: calc(100% + 16px);
+  right: -8px;
+  width: 52px;
+  height: 154px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(14, 20, 20, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  z-index: 8;
+}
+
+.youtube-volume-popover::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  right: 14px;
+  width: 14px;
+  height: 14px;
+  background: rgba(14, 20, 20, 0.98);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transform: rotate(45deg);
+}
+
+.youtube-volume-popover input {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  width: 24px;
+  height: 118px;
+  accent-color: #ff3d4f;
+  background: transparent;
+  direction: rtl;
+  transform: translateX(-50%);
+  writing-mode: vertical-lr;
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+}
+
+.youtube-volume-popover input::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 118px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.youtube-volume-popover input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #ff3d4f;
+  box-shadow: 0 0 12px rgba(255, 61, 79, 0.45);
+  appearance: none;
 }
 
 .weather-panel {

@@ -6,6 +6,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"node server.cjs\" \"vite --host 127.0.0.1\"",
+    "dev:electron": "npm run build && electron .",
     "web": "vite --host 127.0.0.1",
     "server": "node server.cjs",
     "electron": "electron .",

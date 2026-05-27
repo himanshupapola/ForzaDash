@@ -9,7 +9,10 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Volume2,
+  VolumeX,
   Wifi,
+  Youtube,
 } from "lucide-react";
 import forzaLogo from "./assets/forza-logo.png";
 import carTopView from "./assets/car.png";
@@ -23,6 +26,7 @@ import {
   isSpotifyConfigured,
   loginSpotify,
   logoutSpotify,
+  seekSpotify,
   setSpotifyRepeat,
   setSpotifyShuffle,
   spotifyCommand,
@@ -51,6 +55,7 @@ const fallbackTelemetry = {
 };
 
 const SETTINGS_KEY = "forzadash_settings";
+const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
 const DEFAULT_SETTINGS = {
   weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
@@ -83,6 +88,17 @@ function saveSettings(settings) {
   window.dispatchEvent(
     new CustomEvent("forzadash:settings", { detail: settings }),
   );
+}
+
+async function readJsonResponse(response, fallbackError = "Request failed") {
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json")
+    ? await response.json()
+    : null;
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || fallbackError);
+  }
+  return data || { ok: true };
 }
 
 function useSettings() {
@@ -986,6 +1002,30 @@ function App() {
   const clock = useClock();
 
   useEffect(() => {
+    function toggleFullscreen(event) {
+      if (
+        event.button !== 0 ||
+        event.target.closest(
+          "button, input, select, textarea, a, [role='button'], .settings-modal",
+        )
+      ) {
+        return;
+      }
+
+      fetch("/api/window/toggle-fullscreen").catch(() => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+        } else {
+          document.exitFullscreen?.().catch(() => {});
+        }
+      });
+    }
+
+    window.addEventListener("dblclick", toggleFullscreen);
+    return () => window.removeEventListener("dblclick", toggleFullscreen);
+  }, []);
+
+  useEffect(() => {
     if (window.forzaDash?.onTelemetry) {
       window.forzaDash
         .getLatestTelemetry?.()
@@ -1450,6 +1490,7 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
 function MusicPanel({ onOpenSettings }) {
   const settings = useSettings();
   const configured = isSpotifyConfigured();
+  const spotifyLoggedIn = hasSpotifyLogin();
   const [playback, setPlayback] = useState(null);
   const [displayProgress, setDisplayProgress] = useState(0);
   const [progressAnchor, setProgressAnchor] = useState({
@@ -1459,6 +1500,16 @@ function MusicPanel({ onOpenSettings }) {
   });
   const [spotifyReady, setSpotifyReady] = useState(false);
   const [spotifyError, setSpotifyError] = useState("");
+  const [youtubeTestStatus, setYoutubeTestStatus] = useState("");
+  const [youtubeMusicPlaying, setYoutubeMusicPlaying] = useState(false);
+  const [musicProvider, setMusicProvider] = useState(
+    () => localStorage.getItem(MUSIC_PROVIDER_KEY) || "spotify",
+  );
+  const [youtubeTrack, setYoutubeTrack] = useState(null);
+  const [youtubeWindowVisible, setYoutubeWindowVisible] = useState(false);
+  const [youtubeVolume, setYoutubeVolume] = useState(100);
+  const [youtubeMuted, setYoutubeMuted] = useState(false);
+  const [volumeOpen, setVolumeOpen] = useState(false);
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [repeatMode, setRepeatMode] = useState("off");
 
@@ -1522,6 +1573,67 @@ function MusicPanel({ onOpenSettings }) {
     }, 250);
     return () => clearInterval(id);
   }, [playback?.item?.duration_ms, progressAnchor]);
+
+  useEffect(() => {
+    localStorage.setItem(MUSIC_PROVIDER_KEY, musicProvider);
+  }, [musicProvider]);
+
+  useEffect(() => {
+    function closeVolume(event) {
+      if (!event.target?.closest?.(".youtube-volume-control")) {
+        setVolumeOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", closeVolume);
+    return () => window.removeEventListener("pointerdown", closeVolume);
+  }, []);
+
+  useEffect(() => {
+    if (musicProvider !== "youtube") return undefined;
+    let cancelled = false;
+
+    async function refreshYouTube() {
+      try {
+        const response = await fetch("/api/youtube-music/status");
+        const result = await readJsonResponse(
+          response,
+          "YouTube Music status failed",
+        );
+        if (!cancelled && result.ok && result.available !== false) {
+          setYoutubeTrack(result);
+          setYoutubeMusicPlaying(Boolean(result.isPlaying));
+          setYoutubeWindowVisible(Boolean(result.visible));
+          setYoutubeVolume(result.volume ?? 100);
+          setYoutubeMuted(Boolean(result.muted));
+        }
+      } catch {}
+    }
+
+    refreshYouTube();
+    const id = setInterval(refreshYouTube, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [musicProvider]);
+
+  useEffect(() => {
+    if (musicProvider !== "youtube" || !youtubeMusicPlaying) return undefined;
+    const id = setInterval(() => {
+      setYoutubeTrack((current) => {
+        if (!current?.duration) return current;
+        return {
+          ...current,
+          progress: Math.min(
+            current.duration,
+            (current.progress || 0) + 250,
+          ),
+        };
+      });
+    }, 250);
+    return () => clearInterval(id);
+  }, [musicProvider, youtubeMusicPlaying]);
 
   async function runCommand(command) {
     if (!spotifyReady) {
@@ -1593,24 +1705,244 @@ function MusicPanel({ onOpenSettings }) {
     setTimeout(refreshPlayback, 500);
   }
 
+  async function tryYouTubeMusicRandom() {
+    if (youtubeMusicPlaying) {
+      setYoutubeTestStatus("Stopping YouTube Music...");
+      try {
+        const response = await fetch("/api/youtube-music/stop");
+        await readJsonResponse(response, "Could not stop YouTube Music");
+        setYoutubeMusicPlaying(false);
+        setYoutubeTestStatus("YouTube Music stopped");
+      } catch (error) {
+        setYoutubeTestStatus(error.message || "Could not stop YouTube Music");
+      }
+      return;
+    }
+
+    setYoutubeTestStatus("Opening YouTube Music...");
+    try {
+      const response = await fetch("/api/youtube-music/play-random");
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok || !contentType.includes("application/json")) {
+        throw new Error("Electron app required");
+      }
+      const result = await readJsonResponse(response, "Playback failed");
+      setMusicProvider("youtube");
+      setYoutubeTrack(result);
+      setYoutubeMusicPlaying(true);
+      setYoutubeTestStatus(
+        result.title ? `YouTube: ${result.title}` : "YouTube Music started",
+      );
+    } catch (error) {
+      setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
+    }
+  }
+
+  async function openYouTubeMusic() {
+    if (youtubeWindowVisible) {
+      setYoutubeTestStatus("Hiding YouTube Music window...");
+      try {
+        const response = await fetch("/api/youtube-music/hide");
+        await readJsonResponse(response, "Could not hide YouTube Music");
+        setYoutubeWindowVisible(false);
+        setYoutubeTestStatus("YouTube Music hidden");
+      } catch (error) {
+        setYoutubeTestStatus(error.message || "Could not hide YouTube Music");
+      }
+      return;
+    }
+
+    setYoutubeTestStatus("Opening YouTube Music...");
+    try {
+      const response = await fetch("/api/youtube-music/open");
+      await readJsonResponse(response, "Could not open YouTube Music");
+      setYoutubeWindowVisible(true);
+      setYoutubeTestStatus("YouTube Music window open");
+    } catch (error) {
+      setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
+    }
+  }
+
+  async function runYouTubeCommand(command) {
+    if (!youtubeTrack && command === "toggle") {
+      await tryYouTubeMusicRandom();
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/youtube-music/control?command=${encodeURIComponent(command)}`,
+      );
+      const result = await readJsonResponse(
+        response,
+        "YouTube Music control failed",
+      );
+      setYoutubeTrack(result);
+      setYoutubeMusicPlaying(Boolean(result.isPlaying));
+      setYoutubeVolume(result.volume ?? youtubeVolume);
+      setYoutubeMuted(Boolean(result.muted));
+      setYoutubeTestStatus(
+        result.title ? `YouTube: ${result.title}` : "YouTube Music",
+      );
+    } catch (error) {
+      setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
+    }
+  }
+
+  async function setYouTubeVolume(value, muted = youtubeMuted) {
+    const nextVolume = clamp(Number(value), 0, 100);
+    setYoutubeVolume(nextVolume);
+    setYoutubeMuted(Boolean(muted));
+    try {
+      const response = await fetch(
+        `/api/youtube-music/volume?value=${encodeURIComponent(
+          nextVolume,
+        )}&muted=${encodeURIComponent(Boolean(muted))}`,
+      );
+      const result = await readJsonResponse(response, "Volume failed");
+      setYoutubeTrack(result);
+      setYoutubeVolume(result.volume ?? nextVolume);
+      setYoutubeMuted(Boolean(result.muted));
+    } catch (error) {
+      setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
+    }
+  }
+
+  function toggleYouTubeMute() {
+    setYouTubeVolume(youtubeVolume, !youtubeMuted);
+  }
+
+  async function seekPlayback(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const position = ratio * duration;
+
+    if (isYouTube) {
+      setYoutubeTrack((current) => ({
+        ...(current || {}),
+        progress: position,
+        duration,
+      }));
+      try {
+        const response = await fetch(
+          `/api/youtube-music/seek?position=${encodeURIComponent(position)}`,
+        );
+        const result = await readJsonResponse(response, "YouTube seek failed");
+        setYoutubeTrack(result);
+        setYoutubeMusicPlaying(Boolean(result.isPlaying));
+      } catch (error) {
+        setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
+      }
+      return;
+    }
+
+    if (!spotifyReady) {
+      const deviceReady = await ensureSpotifyDevice();
+      if (!deviceReady) {
+        setSpotifyError("No Spotify playback device found");
+        return;
+      }
+      setSpotifyReady(true);
+    }
+
+    setDisplayProgress(position);
+    setProgressAnchor({
+      progress: position,
+      at: Date.now(),
+      playing: Boolean(playback?.is_playing),
+    });
+    const result = await seekSpotify(position);
+    if (result.status >= 400 && result.status !== 204) {
+      setSpotifyError(result.data?.error?.message || "Spotify seek failed");
+    }
+  }
+
   const track = playback?.item;
-  const title = track?.name || "Connect Spotify";
-  const artist =
-    track?.artists?.map((item) => item.name).join(", ") ||
-    "Login to show current track";
-  const album =
-    track?.album?.name ||
-    (configured ? "Playback controls ready" : "Spotify login unavailable");
-  const image = track?.album?.images?.[0]?.url;
-  const duration = track?.duration_ms || 200000;
-  const progress = displayProgress || playback?.progress_ms || 0;
+  const isYouTube = musicProvider === "youtube";
+  const title = isYouTube
+    ? youtubeTrack?.title || "YouTube Music"
+    : track?.name || "Connect Spotify";
+  const artist = isYouTube
+    ? youtubeTrack?.artist || "Click play to start YouTube Music"
+    : track?.artists?.map((item) => item.name).join(", ") ||
+      "Login to show current track";
+  const album = isYouTube
+    ? youtubeTestStatus || youtubeTrack?.album || "YouTube Music ready"
+    : track?.album?.name ||
+      (configured ? "Playback controls ready" : "Spotify login unavailable");
+  const image = isYouTube ? youtubeTrack?.image : track?.album?.images?.[0]?.url;
+  const duration = isYouTube
+    ? youtubeTrack?.duration || 200000
+    : track?.duration_ms || 200000;
+  const progress = isYouTube
+    ? youtubeTrack?.progress || 0
+    : displayProgress || playback?.progress_ms || 0;
   const progressPct = clamp((progress / duration) * 100, 0, 100);
+  const providerStatus = isYouTube
+    ? youtubeTestStatus || youtubeTrack?.album || "YouTube Music ready"
+    : spotifyError || album;
+  const providerPlaying = isYouTube
+    ? youtubeMusicPlaying
+    : Boolean(playback?.is_playing);
+  const primaryAction = isYouTube
+    ? () => runYouTubeCommand("toggle")
+    : spotifyLoggedIn
+      ? () => runCommand("toggle")
+      : loginSpotify;
+
+  function openSelectedMusicSource(event) {
+    if (
+      event.target.closest(
+        "button, input, a, [role='button'], .progress, .youtube-volume-control",
+      )
+    ) {
+      return;
+    }
+
+    if (isYouTube) {
+      if (!youtubeMusicPlaying) openYouTubeMusic();
+      return;
+    }
+
+    if (configured && !spotifyLoggedIn) {
+      loginSpotify();
+    }
+  }
 
   return (
-    <section className="glass-panel music-panel">
+    <section
+      className={`glass-panel music-panel ${isYouTube ? "youtube-mode" : ""}`}
+      onClick={openSelectedMusicSource}
+    >
       <div className="panel-title">
-        <img className="spotify-logo" src={spotifyLogo} alt="" />
-        <h2>SPOTIFY</h2>
+        {isYouTube ? (
+          <Youtube className="provider-icon youtube-provider-icon" />
+        ) : (
+          <img className="spotify-logo" src={spotifyLogo} alt="" />
+        )}
+        <h2>{isYouTube ? "YOUTUBE" : "SPOTIFY"}</h2>
+        {isYouTube && !youtubeMusicPlaying && (
+          <button
+            className="youtube-open-button"
+            type="button"
+            onClick={openYouTubeMusic}
+          >
+            {youtubeWindowVisible ? "HIDE YT" : "OPEN YT"}
+          </button>
+        )}
+        <button
+          className="provider-toggle"
+          type="button"
+          aria-label={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
+          title={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
+          onClick={() => setMusicProvider(isYouTube ? "spotify" : "youtube")}
+        >
+          {isYouTube ? (
+            <img className="provider-toggle-logo" src={spotifyLogo} alt="" />
+          ) : (
+            <Youtube />
+          )}
+        </button>
         <button
           className="settings-trigger"
           type="button"
@@ -1627,17 +1959,24 @@ function MusicPanel({ onOpenSettings }) {
           className="album-art"
           style={image ? { backgroundImage: `url(${image})` } : undefined}
         >
-          {!image && "STARBOY"}
+          {!image && (isYouTube ? "YOUTUBE" : "STARBOY")}
         </div>
         <div className="track-copy">
           <strong>{title}</strong>
           <span>{artist}</span>
-          <em className="spotify-status">{spotifyError || album}</em>
+          <em className="spotify-status">{providerStatus}</em>
         </div>
         <Heart className="heart" fill="currentColor" />
       </div>
       <div
         className="progress"
+        role="slider"
+        tabIndex={0}
+        aria-label={`${isYouTube ? "YouTube Music" : "Spotify"} progress`}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(progress)}
+        onClick={seekPlayback}
         style={{
           "--progress": `${progressPct}%`,
           "--elapsed": `"${formatTime(progress)}"`,
@@ -1647,33 +1986,33 @@ function MusicPanel({ onOpenSettings }) {
         <i />
       </div>
       <div className="music-controls">
-        <button
-          type="button"
-          className={`side-control ${shuffleEnabled ? "active" : ""}`}
-          aria-label="Toggle shuffle"
-          title={shuffleEnabled ? "Shuffle on" : "Shuffle off"}
-          onClick={toggleShuffle}
-        >
-          <Shuffle />
-        </button>
+        {!isYouTube && (
+          <button
+            type="button"
+            className={`side-control ${shuffleEnabled ? "active" : ""}`}
+            aria-label="Toggle shuffle"
+            title={shuffleEnabled ? "Shuffle on" : "Shuffle off"}
+            onClick={toggleShuffle}
+          >
+            <Shuffle />
+          </button>
+        )}
         <button
           type="button"
           aria-label="Previous track"
-          onClick={() => runCommand("previous")}
+          onClick={() =>
+            isYouTube ? runYouTubeCommand("previous") : runCommand("previous")
+          }
         >
           <SkipBack />
         </button>
         <button
           className="primary-control"
           type="button"
-          aria-label={playback?.is_playing ? "Pause" : "Play"}
-          onClick={
-            configured && spotifyReady
-              ? () => runCommand("toggle")
-              : loginSpotify
-          }
+          aria-label={providerPlaying ? "Pause" : "Play"}
+          onClick={primaryAction}
         >
-          {playback?.is_playing ? (
+          {providerPlaying ? (
             <Pause fill="currentColor" />
           ) : (
             <Play fill="currentColor" />
@@ -1682,19 +2021,56 @@ function MusicPanel({ onOpenSettings }) {
         <button
           type="button"
           aria-label="Next track"
-          onClick={() => runCommand("next")}
+          onClick={() =>
+            isYouTube ? runYouTubeCommand("next") : runCommand("next")
+          }
         >
           <SkipForward />
         </button>
-        <button
-          type="button"
-          className={`side-control ${repeatMode !== "off" ? "active" : ""}`}
-          aria-label="Toggle repeat"
-          title={repeatMode === "track" ? "Repeat one" : "Repeat off"}
-          onClick={cycleRepeat}
-        >
-          <Repeat />
-        </button>
+        {!isYouTube && (
+          <button
+            type="button"
+            className={`side-control ${repeatMode !== "off" ? "active" : ""}`}
+            aria-label="Toggle repeat"
+            title={repeatMode === "track" ? "Repeat one" : "Repeat off"}
+            onClick={cycleRepeat}
+          >
+            <Repeat />
+          </button>
+        )}
+        {isYouTube && (
+          <div className="youtube-volume-control">
+            <button
+              type="button"
+              className="side-control"
+              aria-label={youtubeMuted ? "Unmute YouTube Music" : "YouTube Music volume"}
+              title={youtubeMuted ? "Unmute" : "Volume"}
+              onClick={() => setVolumeOpen((current) => !current)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                toggleYouTubeMute();
+              }}
+              onDoubleClick={toggleYouTubeMute}
+            >
+              {youtubeMuted || youtubeVolume === 0 ? <VolumeX /> : <Volume2 />}
+            </button>
+            {volumeOpen && (
+              <div className="youtube-volume-popover">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={youtubeMuted ? 0 : youtubeVolume}
+                  aria-label="YouTube Music volume"
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setYouTubeVolume(value, false);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -1740,13 +2116,16 @@ function SettingsModal({ onClose }) {
       backgroundColor: normalizeColor(draft.backgroundColor),
     });
     setSaved(true);
+    onClose();
   }
 
-  function logout() {
+  async function logoutAll() {
     logoutSpotify();
+    await fetch("/api/youtube-music/logout").catch(() => {});
     window.dispatchEvent(
       new CustomEvent("forzadash:settings", { detail: readSettings() }),
     );
+    setSaved(true);
   }
 
   function resetDefaults() {
@@ -1861,14 +2240,17 @@ function SettingsModal({ onClose }) {
         </p>
         <div className="settings-actions">
           <button type="button" onClick={resetDefaults}>
-            Reset Defaults
+            Reset
           </button>
           <button
             type="button"
-            onClick={spotifyLoggedIn ? logout : loginSpotify}
-            disabled={!spotifyConfigured}
+            onClick={loginSpotify}
+            disabled={!spotifyConfigured || spotifyLoggedIn}
           >
-            {spotifyLoggedIn ? "Logout Spotify" : "Login Spotify"}
+            {spotifyLoggedIn ? "Spotify Logged In" : "Login Spotify"}
+          </button>
+          <button type="button" onClick={logoutAll}>
+            Clear Data
           </button>
           <button className="primary-settings" type="button" onClick={save}>
             Save Settings

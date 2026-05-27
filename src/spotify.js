@@ -198,6 +198,15 @@ export async function setSpotifyRepeat(mode) {
   });
 }
 
+export async function seekSpotify(positionMs) {
+  return spotifyFetch(
+    `/me/player/seek?position_ms=${Math.max(0, Math.round(positionMs))}`,
+    {
+      method: "PUT",
+    },
+  );
+}
+
 export async function ensureSpotifyDevice() {
   const playback = await getPlaybackState();
   if (playback.status === 200) return true;

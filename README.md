@@ -1,6 +1,6 @@
 # ForzaDash
 
-A SimHub-style live telemetry dashboard for Forza Horizon. ForzaDash reads the official Forza Data Out stream and shows a clean racing HUD with speed, RPM, gear, tire temps, suspension, inputs, power, weather, and optional Spotify controls.
+A SimHub-style live telemetry dashboard for Forza Horizon. ForzaDash reads the official Forza Data Out stream and shows a clean racing HUD with speed, RPM, gear, tire temps, suspension, inputs, power, weather, and optional music controls.
 
 ForzaDash is not a mod menu, trainer, or memory editor. It does not patch, inject into, or modify Forza files. It only listens to telemetry that Forza already sends through Data Out.
 
@@ -38,7 +38,7 @@ If the dashboard does not react, check that the Data Out port in Forza matches t
 - Tire temperature and suspension panels
 - Live power and torque graph
 - Weather panel with configurable region
-- Optional Spotify playback controls
+- Optional Spotify and YouTube Music controls
 - Local-only dashboard and telemetry services
 - Portable Windows build
 
@@ -56,6 +56,7 @@ These can be changed from the app settings panel:
 - UDP forward ports
 - Telemetry WebSocket port
 - Spotify setup
+- Music login/logout
 
 Default local dashboard:
 
@@ -70,6 +71,44 @@ ws://127.0.0.1:17878/
 ```
 
 ForzaDash binds its dashboard, telemetry WebSocket, and Forza UDP listener to `127.0.0.1` only. It is not available from public IPs or other devices on the local network.
+
+## Music For Users
+
+ForzaDash supports two music sources from the music panel: Spotify and YouTube Music. Use the small source button in the music panel header to switch between them.
+
+### YouTube Music
+
+YouTube Music works directly inside ForzaDash.
+
+1. Switch the music panel to YouTube.
+2. Click `OPEN YT`.
+3. Sign in with Google if asked.
+4. Pick or start music in the YouTube Music window.
+5. Return to ForzaDash and use the dashboard controls.
+
+After music is playing, ForzaDash can show the song title, artist, artwork, progress, and duration. You can use play/pause, previous, next, volume, mute, and click the progress bar to seek.
+
+`OPEN YT` only opens the YouTube Music window. It does not start music by itself. When music is already playing, this button is hidden to keep the dashboard clean.
+
+Closing the YouTube Music window only hides it. Music can keep playing and ForzaDash can still control it. To fully sign out, open Settings and use `Clear Data`.
+
+### Spotify
+
+Spotify controls work through your Spotify account and need Spotify playing on a device.
+
+1. Add your Spotify Client ID in Settings if it is not already configured.
+2. Click `Login Spotify` in Settings.
+3. Sign in with Spotify and approve access.
+4. Open Spotify on your PC, phone, browser, or any Spotify Connect device.
+5. Start a song once, then use ForzaDash for playback controls.
+
+ForzaDash can show Spotify title, artist, artwork, progress, and duration. It can control play/pause, previous, next, shuffle, repeat, and click-to-seek when Spotify has an active playback device.
+
+If Spotify says no device is found, open Spotify separately and start any song once. Then return to ForzaDash.
+
+### Logout
+
+Use `Clear Data` in Settings to clear music login data. This signs out Spotify in ForzaDash and clears the saved YouTube Music session.
 
 ## Development
 
@@ -103,9 +142,9 @@ The EXE is created at:
 dist/ForzaDash.exe
 ```
 
-## Spotify Optional
+## Spotify Developer Setup
 
-Spotify is optional. To enable controls, create a Spotify app, add this Redirect URI:
+Spotify is optional. To enable Spotify controls in a source build, create a Spotify app, add this Redirect URI:
 
 ```text
 http://127.0.0.1:5173/
@@ -121,6 +160,12 @@ If live data does not appear:
 - Make sure the IP is `127.0.0.1`.
 - Make sure the Data Out port is `1234`, or matches the app setting.
 - Restart ForzaDash after changing ports.
+
+If music controls do not work:
+
+- For YouTube Music, click `OPEN YT`, sign in, and start music once.
+- For Spotify, make sure Spotify is open on at least one device.
+- Use `Clear Data` and sign in again if a music login gets stuck.
 
 ## Disclaimer
 
