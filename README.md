@@ -4,6 +4,8 @@ A SimHub-style live telemetry dashboard for Forza Horizon. ForzaDash reads the o
 
 ForzaDash is not a mod menu, trainer, or memory editor. It does not patch, inject into, or modify Forza files. It only listens to telemetry that Forza already sends through Data Out.
 
+If you want to work along with me on project or have some really good ideas on this @boring_coder Telegram
+
 ## Demo
 
 https://github.com/user-attachments/assets/e52d98cd-b22d-4727-8465-2ab6a72d2553
