@@ -1749,7 +1749,6 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   const [volumeOpen, setVolumeOpen] = useState(false);
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [repeatMode, setRepeatMode] = useState("off");
-  const lastYouTubeTrackKeyRef = useRef("");
 
   async function refreshPlayback() {
     if (!configured) return;
@@ -1835,28 +1834,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           "YouTube Music status failed",
         );
         if (!cancelled && result.ok && result.available !== false) {
-          const nextTitle = String(result.title || "").trim().toLowerCase();
-          const nextArtist = String(result.artist || "").trim().toLowerCase();
-          const nextDuration = Number(result.duration) || 0;
-          const nextTrackKey = `${nextTitle}|${nextArtist}|${nextDuration}`;
-          const previousTrackKey = lastYouTubeTrackKeyRef.current;
-          const trackChanged =
-            Boolean(previousTrackKey) &&
-            Boolean(nextTrackKey) &&
-            previousTrackKey !== nextTrackKey;
-          const normalizedResult = { ...result };
-          if (trackChanged) {
-            const progress = Number(result.progress) || 0;
-            const duration = Number(result.duration) || 0;
-            const progressRatio =
-              duration > 0 ? progress / duration : 0;
-            // If a new song appears with carried-over mid/end progress, reset.
-            if (progressRatio > 0.18) {
-              normalizedResult.progress = 0;
-            }
-          }
-          lastYouTubeTrackKeyRef.current = nextTrackKey;
-          setYoutubeTrack(normalizedResult);
+          setYoutubeTrack(result);
           setYoutubeMusicPlaying(Boolean(result.isPlaying));
           setYoutubeWindowVisible(Boolean(result.visible));
           if (!volumeOpen) {

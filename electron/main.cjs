@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, shell, powerSaveBlocker } = require("electron");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -16,7 +16,6 @@ let youtubeMusicWindow = null;
 let youtubeMusicLoaded = false;
 let youtubePreferredVolume = null;
 let youtubePreferredMuted = null;
-let youtubeLastState = null;
 let isQuitting = false;
 
 function isYouTubeMusicUrl(url) {
@@ -47,6 +46,14 @@ function youtubeMusicSession() {
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock();
+let mediaSuspendBlockerId = null;
+
+// Keep media playback stable when app windows lose focus (e.g. alt-tab to game).
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+app.commandLine.appendSwitch("disable-background-media-suspend");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 if (!singleInstanceLock) {
   app.quit();
@@ -106,37 +113,6 @@ function getSettingsFilePath() {
 
 function getYouTubeStateFilePath() {
   return path.join(app.getPath("userData"), "forzadash-youtube-state.json");
-}
-
-function readYouTubeStateFile() {
-  try {
-    const data = JSON.parse(fs.readFileSync(getYouTubeStateFilePath(), "utf8"));
-    return data && typeof data === "object" ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeYouTubeStateFile(state) {
-  try {
-    fs.writeFileSync(getYouTubeStateFilePath(), JSON.stringify(state, null, 2));
-  } catch {}
-}
-
-function rememberYouTubeState(status, currentUrl = "") {
-  if (!status || status.available === false) return;
-  const url = String(currentUrl || "").trim();
-  if (!isControllableYouTubeMusicUrl(url)) return;
-  youtubeLastState = {
-    url,
-    progress: Number.isFinite(status.progress) ? Math.max(0, status.progress) : 0,
-    isPlaying: Boolean(status.isPlaying),
-    title: String(status.title || "").trim(),
-    artist: String(status.artist || "").trim(),
-    duration: Number.isFinite(status.duration) ? Math.max(0, status.duration) : 0,
-    at: Date.now(),
-  };
-  writeYouTubeStateFile(youtubeLastState);
 }
 
 function readSettingsFile() {
@@ -669,70 +645,205 @@ function createYouTubeMusicWindow() {
   return youtubeMusicWindow;
 }
 
-function hideYouTubeMusicWindow() {
+function hideYouTubeMusicWindow(focusDashboard = false) {
   if (youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
     youtubeMusicWindow.hide();
   }
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+  if (focusDashboard && dashboardWindow && !dashboardWindow.isDestroyed()) {
     dashboardWindow.show();
     dashboardWindow.focus();
   }
 }
 
 function hideYouTubeMusicOnly() {
-  if (youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
-    youtubeMusicWindow.hide();
+  hideYouTubeMusicWindow(false);
+}
+
+function waitForWindowLoad(window) {
+  return new Promise((resolve) => {
+    if (!window || window.isDestroyed()) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(resolve, 12000);
+    window.webContents.once("did-finish-load", () => {
+      clearTimeout(timeout);
+      setTimeout(resolve, 800);
+    });
+  });
+}
+
+async function ensureYouTubeMusicLoaded({ visible = false } = {}) {
+  const window = createYouTubeMusicWindow();
+  if (window.isMinimized()) window.restore();
+  if (visible) {
+    window.show();
+    window.focus();
   }
+
+  if (!youtubeMusicLoaded || !isControllableYouTubeMusicUrl(window.webContents.getURL())) {
+    await window.loadURL("https://music.youtube.com/");
+    youtubeMusicLoaded = true;
+    await waitForWindowLoad(window);
+  }
+
+  await installYouTubePlayerEventBridge(window);
+  await installYouTubeAudioMode(window);
+  await installYouTubeActivityKeepAlive(window);
+  await applyYouTubeVolume(window);
+  return window;
 }
 
 async function openYouTubeMusicWindow() {
-  const window = createYouTubeMusicWindow();
+  const window = await ensureYouTubeMusicLoaded({ visible: true });
   window.show();
   window.focus();
-  if (!youtubeMusicLoaded) {
-    const savedState = youtubeLastState || readYouTubeStateFile();
-    const startUrl =
-      savedState?.url && isControllableYouTubeMusicUrl(savedState.url)
-        ? savedState.url
-        : "https://music.youtube.com/";
-    await window.loadURL(startUrl);
-    youtubeMusicLoaded = true;
-    if (savedState && isControllableYouTubeMusicUrl(startUrl)) {
-      const savedProgress = Number(savedState.progress);
-      const shouldPlay = Boolean(savedState.isPlaying);
-      const savedTitle = String(savedState.title || "").trim().toLowerCase();
-      const savedArtist = String(savedState.artist || "").trim().toLowerCase();
-      const savedDuration = Number(savedState.duration);
-      await waitForWindowLoad(window);
-      await window.webContents.executeJavaScript(`
-        (() => {
-          const media = document.querySelector("video, audio");
-          if (!media) return false;
-          const text = (selector) =>
-            document.querySelector(selector)?.textContent?.trim() || "";
-          const currentTitle = text("ytmusic-player-bar .title").toLowerCase();
-          const currentArtist = text("ytmusic-player-bar .byline").toLowerCase();
-          const currentDuration = Number.isFinite(media.duration) ? media.duration * 1000 : 0;
-          const savedTitle = ${JSON.stringify(savedTitle)};
-          const savedArtist = ${JSON.stringify(savedArtist)};
-          const savedDuration = ${JSON.stringify(Number.isFinite(savedDuration) ? savedDuration : 0)};
-          const titleMatches = savedTitle && currentTitle && savedTitle === currentTitle;
-          const artistMatches = savedArtist && currentArtist && savedArtist === currentArtist;
-          const durationClose =
-            savedDuration > 0 &&
-            currentDuration > 0 &&
-            Math.abs(savedDuration - currentDuration) < 2500;
-          const sameTrack = titleMatches || (artistMatches && durationClose) || (titleMatches && durationClose);
-          const p = ${JSON.stringify(Number.isFinite(savedProgress) ? savedProgress : 0)};
-          if (sameTrack && p > 0) media.currentTime = p / 1000;
-          const shouldPlay = ${JSON.stringify(shouldPlay)};
-          if (shouldPlay) media.play?.().catch?.(() => {});
-          return true;
-        })();
-      `).catch(() => {});
-    }
-  }
-  return { ok: true, opened: true };
+  return { ok: true, opened: true, visible: true };
+}
+
+async function installYouTubePlayerEventBridge(window) {
+  if (!window || window.isDestroyed()) return;
+  await window.webContents.executeJavaScript(`
+    (() => {
+      if (window.forzaDashPlayerEventBridgeInstalled) return true;
+      window.forzaDashPlayerEventBridgeInstalled = true;
+
+      const readState = (api) => {
+        const playerApi = api || document.querySelector("#movie_player");
+        const media = document.querySelector("video, audio");
+        const response =
+          typeof playerApi?.getPlayerResponse === "function"
+            ? playerApi.getPlayerResponse()
+            : null;
+        const details = response?.videoDetails || {};
+        const thumbnail = Array.isArray(details.thumbnail?.thumbnails)
+          ? details.thumbnail.thumbnails[details.thumbnail.thumbnails.length - 1]?.url || ""
+          : "";
+        window.forzaDashPlayerState = {
+          title: details.title || "",
+          artist: details.author || "",
+          duration: Number(details.lengthSeconds) || 0,
+          progress:
+            typeof playerApi?.getCurrentTime === "function"
+              ? Number(playerApi.getCurrentTime()) || 0
+              : Number(media?.currentTime) || 0,
+          image: thumbnail ? thumbnail.split("?")[0] : "",
+          isPlaying: media ? !media.paused : undefined,
+          at: Date.now(),
+        };
+        return window.forzaDashPlayerState;
+      };
+
+      document.addEventListener("apiLoaded", (event) => {
+        const api = event.detail;
+        readState(api);
+        api?.addEventListener?.("videodatachange", (name) => {
+          if (name === "dataloaded" || name === "dataupdated") readState(api);
+        });
+      }, { once: true, passive: true });
+
+      for (const eventName of ["playing", "pause", "timeupdate", "loadedmetadata"]) {
+        document.addEventListener(eventName, () => readState(), true);
+      }
+
+      readState();
+      return true;
+    })();
+  `).catch(() => {});
+}
+
+async function installYouTubeActivityKeepAlive(window) {
+  if (!window || window.isDestroyed()) return;
+  await window.webContents.executeJavaScript(`
+    (() => {
+      if (window.forzaDashActivityKeepAliveInstalled) return true;
+      window.forzaDashActivityKeepAliveInstalled = true;
+      const markActive = () => {
+        window._lact = Date.now();
+      };
+      markActive();
+      setInterval(markActive, 900000);
+      return true;
+    })();
+  `).catch(() => {});
+}
+
+async function installYouTubeAudioMode(window) {
+  if (!window || window.isDestroyed()) return;
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const $ = (selector) => document.querySelector(selector);
+      const changeDisplay = (showVideo) => {
+        const player = $("ytmusic-player");
+        const songVideo = $("#song-video.ytmusic-player");
+        const songImage = $("#song-image");
+        if (!player || !songVideo || !songImage) return false;
+
+        player.style.margin = showVideo ? "" : "auto 0px";
+        player.setAttribute("playback-mode", showVideo ? "OMV_PREFERRED" : "ATV_PREFERRED");
+        songVideo.style.display = showVideo ? "block" : "none";
+        songImage.style.display = showVideo ? "none" : "block";
+        return true;
+      };
+
+      const forcePlaybackMode = () => {
+        const player = $("ytmusic-player");
+        if (!player || window.forzaDashAudioModeObserverInstalled) return;
+        window.forzaDashAudioModeObserverInstalled = true;
+        const playbackModeObserver = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            if (mutation.target.getAttribute("playback-mode") !== "ATV_PREFERRED") {
+              playbackModeObserver.disconnect();
+              window.forzaDashAudioModeObserverInstalled = false;
+              mutation.target.setAttribute("playback-mode", "ATV_PREFERRED");
+              changeDisplay(false);
+              forcePlaybackMode();
+              break;
+            }
+          }
+        });
+        playbackModeObserver.observe(player, { attributeFilter: ["playback-mode"] });
+      };
+
+      const apply = () => {
+        if (changeDisplay(false)) forcePlaybackMode();
+      };
+
+      apply();
+      setTimeout(apply, 500);
+      setTimeout(apply, 1500);
+      return true;
+    })();
+  `).catch(() => {});
+}
+
+async function applyYouTubeVolume(window) {
+  if (!window || window.isDestroyed()) return;
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const preferredVolume = ${JSON.stringify(youtubePreferredVolume)};
+      const preferredMuted = ${JSON.stringify(youtubePreferredMuted)};
+      const medias = Array.from(document.querySelectorAll("video, audio"));
+      const playerApi = document.querySelector("#movie_player");
+      for (const media of medias) {
+        if (typeof preferredVolume === "number") media.volume = Math.min(1, Math.max(0, preferredVolume / 100));
+        if (typeof preferredMuted === "boolean") media.muted = preferredMuted;
+      }
+      if (playerApi && typeof preferredVolume === "number" && typeof playerApi.setVolume === "function") {
+        playerApi.setVolume(Math.min(100, Math.max(0, Math.round(preferredVolume))));
+      }
+      if (playerApi && typeof playerApi.mute === "function" && typeof playerApi.unMute === "function") {
+        if (preferredMuted === true) playerApi.mute();
+        if (preferredMuted === false) playerApi.unMute();
+      }
+      return true;
+    })();
+  `).catch(() => {});
+}
+
+function sendYouTubeKey(window, keyCode, modifiers = []) {
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
 }
 
 function normalizeVersionTag(tag) {
@@ -829,7 +940,6 @@ async function logoutYouTubeMusic() {
     });
     await session.clearCache();
   }
-  youtubeLastState = null;
   try {
     fs.unlinkSync(getYouTubeStateFilePath());
   } catch {}
@@ -837,60 +947,31 @@ async function logoutYouTubeMusic() {
   return { ok: true, loggedOut: true };
 }
 
-function waitForWindowLoad(window) {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, 10000);
-    window.webContents.once("did-finish-load", () => {
-      clearTimeout(timeout);
-      setTimeout(resolve, 1800);
-    });
-  });
-}
-
-async function playRandomYouTubeMusic() {
-  // Resume user context instead of forcing a hardcoded/random song.
-  const savedState = youtubeLastState || readYouTubeStateFile();
-  const window = createYouTubeMusicWindow();
-  const shouldShowForLogin = !youtubeMusicLoaded;
-  if (shouldShowForLogin) {
-    window.show();
-    window.focus();
-  }
-  const startUrl =
-    savedState?.url && isControllableYouTubeMusicUrl(savedState.url)
-      ? savedState.url
-      : "https://music.youtube.com/";
-  await window.loadURL(startUrl);
-  youtubeMusicLoaded = true;
-  await waitForWindowLoad(window);
+async function playRandomYouTubeMusic(options = {}) {
+  const keepWindowOpen = Boolean(options.keepWindowOpen);
+  const wasLoaded = youtubeMusicLoaded;
+  const window = await ensureYouTubeMusicLoaded({ visible: keepWindowOpen || !wasLoaded });
 
   const result = await window.webContents.executeJavaScript(`
     (async () => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const savedProgress = ${JSON.stringify(
-        Number.isFinite(savedState?.progress) ? savedState.progress : 0,
-      )};
-      if (savedProgress > 0) {
-        const media = document.querySelector("video, audio");
-        if (media) media.currentTime = savedProgress / 1000;
-      }
       const playButton = document.querySelector(
         "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button"
       );
       const label = playButton?.getAttribute("aria-label") || "";
       if (/play/i.test(label)) playButton.click();
-      await sleep(700);
-      ${youtubeApplyPreferredVolumeScript()}
+      const media = document.querySelector("video, audio");
+      if (media?.paused) media.play?.().catch?.(() => {});
+      await sleep(500);
       const status = ${youtubeStatusScript};
-      return {
-        ...status,
-        ok: true
-      };
+      return { ...status, ok: true };
     })();
   `);
 
-  if (result?.ok && shouldShowForLogin) {
-    setTimeout(hideYouTubeMusicWindow, 1200);
+  await applyYouTubeVolume(window);
+
+  if (result?.ok && !keepWindowOpen) {
+    setTimeout(() => hideYouTubeMusicWindow(true), 1000);
   }
 
   return result;
@@ -901,7 +982,8 @@ async function stopYouTubeMusic() {
     return { ok: true, stopped: false };
   }
 
-  await youtubeMusicWindow.webContents.executeJavaScript(`
+  const window = youtubeMusicWindow;
+  await window.webContents.executeJavaScript(`
     (() => {
       const button = document.querySelector(
         "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button"
@@ -913,20 +995,35 @@ async function stopYouTubeMusic() {
       return true;
     })();
   `);
-  youtubeMusicWindow.hide();
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-    dashboardWindow.show();
-    dashboardWindow.focus();
-  }
-  return { ok: true, stopped: true };
+  hideYouTubeMusicWindow(true);
+  const status = await getYouTubeMusicStatus();
+  return { ...status, stopped: true };
 }
 
 const youtubeStatusScript = `(() => {
   try {
     const text = (selector) =>
       document.querySelector(selector)?.textContent?.trim() || "";
+    const asSeconds = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? n : NaN;
+    };
+    const timeToSeconds = (value) => {
+      const parts = String(value || "")
+        .trim()
+        .split(":")
+        .map((part) => Number(part));
+      if (!parts.length || parts.some((part) => !Number.isFinite(part))) return NaN;
+      return parts.reduce((total, part) => total * 60 + part, 0);
+    };
     const playerApi = document.querySelector("#movie_player");
+    const playerResponse =
+      typeof playerApi?.getPlayerResponse === "function"
+        ? playerApi.getPlayerResponse()
+        : null;
+    const eventState = window.forzaDashPlayerState || {};
     const image =
+      eventState.image ||
       document.querySelector("ytmusic-player-bar img.image")?.src ||
       document.querySelector("ytmusic-player-bar img")?.src ||
       "";
@@ -953,14 +1050,49 @@ const youtubeStatusScript = `(() => {
       typeof playerApi?.getCurrentTime === "function"
         ? Number(playerApi.getCurrentTime())
         : NaN;
+    const progressBar = document.querySelector("#progress-bar");
+    const progressBarSeconds = asSeconds(
+      progressBar?.getAttribute("value") ||
+      progressBar?.getAttribute("aria-valuenow")
+    );
+    const progressMaxSeconds = asSeconds(
+      progressBar?.getAttribute("max") ||
+      progressBar?.getAttribute("aria-valuemax")
+    );
+    const timeInfo = Array.from(document.querySelectorAll("ytmusic-player-bar, ytmusic-player"))
+      .map((node) => node.textContent || "")
+      .join(" ");
+    const timeMatch = timeInfo.match(/(\\d{1,2}:\\d{2})(?:\\s*\\/\\s*|\\s+)(\\d{1,2}:\\d{2})/);
+    const visibleProgressSeconds = timeMatch ? timeToSeconds(timeMatch[1]) : NaN;
+    const visibleDurationSeconds = timeMatch ? timeToSeconds(timeMatch[2]) : NaN;
+    const responseDurationSeconds = asSeconds(playerResponse?.videoDetails?.lengthSeconds);
+    const responseProgressSeconds = asSeconds(playerResponse?.videoDetails?.elapsedSeconds);
+    const eventDurationSeconds = asSeconds(eventState.duration);
+    const eventProgressSeconds = asSeconds(eventState.progress);
     const duration =
-      Number.isFinite(apiDurationSeconds) && apiDurationSeconds > 0
+      Number.isFinite(eventDurationSeconds) && eventDurationSeconds > 0
+        ? eventDurationSeconds * 1000
+        : Number.isFinite(responseDurationSeconds) && responseDurationSeconds > 0
+        ? responseDurationSeconds * 1000
+        : Number.isFinite(visibleDurationSeconds) && visibleDurationSeconds > 0
+          ? visibleDurationSeconds * 1000
+          : Number.isFinite(progressMaxSeconds) && progressMaxSeconds > 0
+            ? progressMaxSeconds * 1000
+            : Number.isFinite(apiDurationSeconds) && apiDurationSeconds > 0
         ? apiDurationSeconds * 1000
         : Number.isFinite(media?.duration)
           ? media.duration * 1000
           : 0;
     const rawProgress =
-      Number.isFinite(apiProgressSeconds) && apiProgressSeconds >= 0
+      Number.isFinite(eventProgressSeconds) && eventProgressSeconds >= 0
+        ? eventProgressSeconds * 1000
+        : Number.isFinite(responseProgressSeconds) && responseProgressSeconds >= 0
+        ? responseProgressSeconds * 1000
+        : Number.isFinite(visibleProgressSeconds) && visibleProgressSeconds >= 0
+          ? visibleProgressSeconds * 1000
+          : Number.isFinite(progressBarSeconds) && progressBarSeconds >= 0
+            ? progressBarSeconds * 1000
+            : Number.isFinite(apiProgressSeconds) && apiProgressSeconds >= 0
         ? apiProgressSeconds * 1000
         : Number.isFinite(media?.currentTime)
           ? media.currentTime * 1000
@@ -971,19 +1103,19 @@ const youtubeStatusScript = `(() => {
     return {
       ok: true,
       available: true,
-      visible: Boolean(
-        window.forzaDashYouTubeVisible ||
-        document.visibilityState === "visible"
-      ),
-      title: text("ytmusic-player-bar .title") || "YouTube Music",
-      artist: text("ytmusic-player-bar .byline") || "Ready to play",
+      visible: document.visibilityState === "visible",
+      title: eventState.title || text("ytmusic-player-bar .title") || "YouTube Music",
+      artist: eventState.artist || text("ytmusic-player-bar .byline") || "Ready to play",
       album: text("ytmusic-player-bar .subtitle") || "YouTube Music",
       image,
       duration,
       progress,
       volume,
       muted,
-      isPlaying: /pause/i.test(label) || Boolean(media && !media.paused)
+      isPlaying:
+        typeof eventState.isPlaying === "boolean"
+          ? eventState.isPlaying
+          : /pause/i.test(label) || Boolean(media && !media.paused)
     };
   } catch (error) {
     return {
@@ -1001,60 +1133,6 @@ const youtubeStatusScript = `(() => {
     };
   }
 })()`;
-
-function youtubeApplyPreferredVolumeScript() {
-  return `
-    (() => {
-      const medias = Array.from(document.querySelectorAll("video, audio"));
-      if (!medias.length) return false;
-      const preferredVolume = ${JSON.stringify(youtubePreferredVolume)};
-      const preferredMuted = ${JSON.stringify(youtubePreferredMuted)};
-      const forceMute = typeof preferredVolume === "number" && preferredVolume <= 0;
-      for (const media of medias) {
-        if (typeof preferredVolume === "number") {
-          media.volume = Math.min(1, Math.max(0, preferredVolume / 100));
-        }
-        if (forceMute) {
-          media.muted = true;
-        } else if (typeof preferredMuted === "boolean") {
-          media.muted = preferredMuted;
-        }
-      }
-      const playerApi = document.querySelector("#movie_player");
-      if (playerApi) {
-        if (typeof preferredVolume === "number" && typeof playerApi.setVolume === "function") {
-          playerApi.setVolume(Math.min(100, Math.max(0, Math.round(preferredVolume))));
-        }
-        if (typeof playerApi.mute === "function" && typeof playerApi.unMute === "function") {
-          if (forceMute || preferredMuted === true) playerApi.mute();
-          if (!forceMute && preferredMuted === false) playerApi.unMute();
-        }
-      }
-
-      // Keep enforcing on media lifecycle events to avoid transition blips.
-      if (!window.forzaDashSilenceGuardInstalled) {
-        window.forzaDashSilenceGuardInstalled = true;
-        const enforce = () => {
-          const mediasNow = Array.from(document.querySelectorAll("video, audio"));
-          const vol = window.forzaDashPreferredVolume;
-          const muted = window.forzaDashPreferredMuted;
-          const hardMute = typeof vol === "number" && vol <= 0;
-          for (const m of mediasNow) {
-            if (typeof vol === "number") m.volume = Math.min(1, Math.max(0, vol / 100));
-            if (hardMute) m.muted = true;
-            else if (typeof muted === "boolean") m.muted = muted;
-          }
-        };
-        for (const eventName of ["playing", "loadeddata", "canplay", "timeupdate", "ended"]) {
-          document.addEventListener(eventName, enforce, true);
-        }
-      }
-      window.forzaDashPreferredVolume = preferredVolume;
-      window.forzaDashPreferredMuted = preferredMuted;
-      return true;
-    })();
-  `;
-}
 
 async function getYouTubeMusicStatus() {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
@@ -1074,11 +1152,10 @@ async function getYouTubeMusicStatus() {
       progress: 0,
     };
   }
-  await youtubeMusicWindow.webContents.executeJavaScript(
-    youtubeApplyPreferredVolumeScript(),
-  );
+  await installYouTubePlayerEventBridge(youtubeMusicWindow);
+  await installYouTubeAudioMode(youtubeMusicWindow);
+  await applyYouTubeVolume(youtubeMusicWindow);
   const status = await youtubeMusicWindow.webContents.executeJavaScript(youtubeStatusScript);
-  rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
   return {
     ...status,
     available: true,
@@ -1088,6 +1165,9 @@ async function getYouTubeMusicStatus() {
 
 async function controlYouTubeMusic(command) {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
+    if (command === "toggle" || command === "play") {
+      return playRandomYouTubeMusic();
+    }
     return { ok: false, error: "YouTube Music is not open" };
   }
   if (!isControllableYouTubeMusicUrl(youtubeMusicWindow.webContents.getURL())) {
@@ -1107,60 +1187,36 @@ async function controlYouTubeMusic(command) {
     return { ok: false, error: "Unsupported YouTube Music command" };
   }
 
-  return youtubeMusicWindow.webContents.executeJavaScript(`
-    (async () => {
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const findButton = (selectors) => {
-        for (const selector of selectors) {
-          const button = document.querySelector(selector);
-          if (button) return button;
-        }
-        return null;
-      };
-      const playButton = () => findButton([
-        "ytmusic-player-bar #play-pause-button",
-        "ytmusic-player-bar .play-pause-button",
-        "#play-pause-button",
-      ]);
-      const nextButton = () => findButton([
-        "ytmusic-player-bar .next-button",
-        "ytmusic-player-bar tp-yt-paper-icon-button.next-button",
-        ".next-button",
-      ]);
-      const previousButton = () => findButton([
-        "ytmusic-player-bar .previous-button",
-        "ytmusic-player-bar tp-yt-paper-icon-button.previous-button",
-        ".previous-button",
-      ]);
-      const shuffleButton = () => findButton([
-        "ytmusic-player-bar #right-controls .shuffle",
-        "ytmusic-player-bar .shuffle",
-        "#right-controls .shuffle",
-      ]);
-      const repeatButton = () => findButton([
-        "ytmusic-player-bar #right-controls .repeat",
-        "ytmusic-player-bar .repeat",
-        "#right-controls .repeat",
-      ]);
-      const label = () => playButton()?.getAttribute("aria-label") || "";
-      const command = ${JSON.stringify(command)};
+  const window = youtubeMusicWindow;
+  await installYouTubePlayerEventBridge(window);
+  await installYouTubeAudioMode(window);
+  if (command === "toggle") sendYouTubeKey(window, ";");
+  if (command === "next") sendYouTubeKey(window, "j");
+  if (command === "previous") sendYouTubeKey(window, "k");
+  if (command === "shuffle") sendYouTubeKey(window, "s");
+  if (command === "repeat") sendYouTubeKey(window, "r");
 
-      if (command === "toggle") playButton()?.click();
-      if (command === "play" && /play/i.test(label())) playButton()?.click();
-      if (command === "pause" && /pause/i.test(label())) playButton()?.click();
-      if (command === "next") nextButton()?.click();
-      if (command === "previous") previousButton()?.click();
-      if (command === "shuffle") shuffleButton()?.click();
-      if (command === "repeat") repeatButton()?.click();
+  if (command === "play" || command === "pause") {
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const shouldPlay = ${JSON.stringify(command === "play")};
+        const button = document.querySelector(
+          "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button, #play-pause-button"
+        );
+        const label = button?.getAttribute("aria-label") || "";
+        if (shouldPlay && /play/i.test(label)) button?.click();
+        if (!shouldPlay && /pause/i.test(label)) button?.click();
+        const media = document.querySelector("video, audio");
+        if (shouldPlay && media?.paused) media.play?.().catch?.(() => {});
+        if (!shouldPlay && media && !media.paused) media.pause();
+        return true;
+      })();
+    `);
+  }
 
-      await sleep(650);
-      ${youtubeApplyPreferredVolumeScript()}
-      return ${youtubeStatusScript};
-    })();
-  `).then((status) => {
-    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
-    return status;
-  });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await applyYouTubeVolume(window);
+  return getYouTubeMusicStatus();
 }
 
 async function seekYouTubeMusic(searchParams) {
@@ -1176,7 +1232,8 @@ async function seekYouTubeMusic(searchParams) {
     return { ok: false, error: "Invalid seek position" };
   }
 
-  return youtubeMusicWindow.webContents.executeJavaScript(`
+  const window = youtubeMusicWindow;
+  return window.webContents.executeJavaScript(`
     (() => {
       const playerApi = document.querySelector("#movie_player");
       const media = document.querySelector("video, audio");
@@ -1196,13 +1253,9 @@ async function seekYouTubeMusic(searchParams) {
       } else if (media) {
         media.currentTime = finalSeek;
       }
-      ${youtubeApplyPreferredVolumeScript()}
       return ${youtubeStatusScript};
     })();
-  `).then((status) => {
-    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
-    return status;
-  });
+  `);
 }
 async function setYouTubeMusicVolume(searchParams) {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
@@ -1220,20 +1273,8 @@ async function setYouTubeMusicVolume(searchParams) {
     youtubePreferredMuted = true;
   }
   if (muted !== null) youtubePreferredMuted = muted;
-  return youtubeMusicWindow.webContents.executeJavaScript(`
-    (() => {
-      const media = document.querySelector("video, audio");
-      if (!media) return { ok: false, error: "No YouTube Music media found" };
-      const v = ${JSON.stringify(hasVolume ? Math.min(100, Math.max(0, volume)) : null)};
-      const m = ${JSON.stringify(muted)};
-      if (v !== null) media.volume = Math.min(1, Math.max(0, v / 100));
-      if (m !== null) media.muted = m;
-      return ${youtubeStatusScript};
-    })();
-  `).then((status) => {
-    rememberYouTubeState(status, youtubeMusicWindow.webContents.getURL());
-    return status;
-  });
+  await applyYouTubeVolume(youtubeMusicWindow);
+  return getYouTubeMusicStatus();
 }
 
 if (singleInstanceLock) {
@@ -1250,6 +1291,9 @@ if (singleInstanceLock) {
 
   app.whenReady().then(async () => {
     app.setAppUserModelId("com.forzadash.app");
+    if (!powerSaveBlocker.isStarted(mediaSuspendBlockerId ?? -1)) {
+      mediaSuspendBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+    }
     loadRuntimeEnv();
     applySavedSettingsToEnv();
     require(path.join(__dirname, "..", "server.cjs"));
@@ -1261,6 +1305,13 @@ if (singleInstanceLock) {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (
+    mediaSuspendBlockerId !== null &&
+    powerSaveBlocker.isStarted(mediaSuspendBlockerId)
+  ) {
+    powerSaveBlocker.stop(mediaSuspendBlockerId);
+    mediaSuspendBlockerId = null;
+  }
   if (youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
     youtubeMusicWindow.destroy();
     youtubeMusicWindow = null;
