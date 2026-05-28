@@ -695,8 +695,11 @@ async function ensureYouTubeMusicLoaded({ visible = false } = {}) {
 
 async function openYouTubeMusicWindow() {
   const window = await ensureYouTubeMusicLoaded({ visible: true });
-  window.show();
-  window.focus();
+  // If user closed/hid while initial load was in progress, do not re-show.
+  if (window && !window.isDestroyed() && window.isVisible()) {
+    window.show();
+    window.focus();
+  }
   return { ok: true, opened: true, visible: true };
 }
 

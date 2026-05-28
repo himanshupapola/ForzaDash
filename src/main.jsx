@@ -314,8 +314,13 @@ function useSmoothedTelemetry(targetTelemetry) {
   useEffect(() => {
     let frameId = 0;
     let lastFrame = performance.now();
+    const frameIntervalMs = 1000 / 45;
 
     function tick(now) {
+      if (now - lastFrame < frameIntervalMs) {
+        frameId = requestAnimationFrame(tick);
+        return;
+      }
       const dt = clamp((now - lastFrame) / 1000, 0, 0.08);
       lastFrame = now;
 
@@ -1847,12 +1852,13 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     }
 
     refreshYouTube();
-    const id = setInterval(refreshYouTube, 1000);
+    const intervalMs = youtubeMusicPlaying || youtubeWindowVisible ? 1000 : 2500;
+    const id = setInterval(refreshYouTube, intervalMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [musicProvider, volumeOpen]);
+  }, [musicProvider, volumeOpen, youtubeMusicPlaying, youtubeWindowVisible]);
 
   useEffect(() => {
     const wasPlaying = wasYouTubePlayingRef.current;
