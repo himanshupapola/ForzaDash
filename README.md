@@ -8,7 +8,7 @@ If you want to work along with me on project or have some really good ideas on t
 
 ## Demo
 
-https://github.com/user-attachments/assets/e52d98cd-b22d-4727-8465-2ab6a72d2553
+https://github.com/user-attachments/assets/06b40da0-ab47-4fc6-8be9-ff057543def3
 
 ## Download
 
