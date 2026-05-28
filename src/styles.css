@@ -1292,6 +1292,10 @@ h3 {
   cursor: pointer;
 }
 
+.progress.is-readonly {
+  cursor: default;
+}
+
 
 .progress::before,
 .progress::after {
@@ -1440,12 +1444,16 @@ h3 {
 }
 
 .youtube-mode .music-controls {
-  gap: clamp(20px, 2.1vw, 36px);
+  display: grid;
+  grid-template-columns: repeat(5, clamp(34px, 2.8vw, 52px));
+  justify-content: center;
+  justify-items: center;
+  gap: clamp(18px, 2vw, 34px);
 }
 
 .youtube-mode .music-controls .youtube-volume-control,
 .youtube-mode .music-controls .jump-control {
-  width: clamp(34px, 2.4vw, 44px);
+  width: clamp(34px, 2.8vw, 52px);
   display: grid;
   place-items: center;
 }

@@ -470,9 +470,8 @@ function startDashboardServer() {
       return;
     }
 
-
-    if (url.pathname === "/api/youtube-music/seek") {
-      seekYouTubeMusic(url.searchParams)
+    if (url.pathname === "/api/youtube-music/jump") {
+      jumpYouTubeMusic(url.searchParams)
         .then((result) => {
           response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           response.end(JSON.stringify(result));
@@ -482,7 +481,7 @@ function startDashboardServer() {
           response.end(
             JSON.stringify({
               ok: false,
-              error: error?.message || "YouTube Music seek failed",
+              error: error?.message || "YouTube Music jump failed",
             }),
           );
         });
@@ -1219,44 +1218,21 @@ async function controlYouTubeMusic(command) {
   return getYouTubeMusicStatus();
 }
 
-async function seekYouTubeMusic(searchParams) {
+async function jumpYouTubeMusic(searchParams) {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
     return { ok: false, error: "YouTube Music is not open" };
   }
   if (!isControllableYouTubeMusicUrl(youtubeMusicWindow.webContents.getURL())) {
-    return { ok: false, error: "Open YouTube Music to seek" };
+    return { ok: false, error: "Open YouTube Music to jump" };
   }
 
-  const positionMs = Number(searchParams.get("position"));
-  if (!Number.isFinite(positionMs)) {
-    return { ok: false, error: "Invalid seek position" };
-  }
-
-  const window = youtubeMusicWindow;
-  return window.webContents.executeJavaScript(`
-    (() => {
-      const playerApi = document.querySelector("#movie_player");
-      const media = document.querySelector("video, audio");
-      if (!media && !playerApi) return { ok: false, error: "No YouTube Music media found" };
-      const targetSeconds = Math.max(0, ${JSON.stringify(positionMs)} / 1000);
-      const apiDuration =
-        typeof playerApi?.getDuration === "function"
-          ? Number(playerApi.getDuration())
-          : 0;
-      const mediaDuration = Number.isFinite(media?.duration) ? media.duration : 0;
-      const duration = apiDuration > 0 ? apiDuration : mediaDuration;
-      // Avoid exact-end seeks; they can leave YouTube in a sticky ended state.
-      const maxSeek = duration > 0.35 ? duration - 0.35 : duration;
-      const finalSeek = duration ? Math.min(targetSeconds, maxSeek) : targetSeconds;
-      if (typeof playerApi?.seekTo === "function") {
-        playerApi.seekTo(finalSeek, true);
-      } else if (media) {
-        media.currentTime = finalSeek;
-      }
-      return ${youtubeStatusScript};
-    })();
-  `);
+  const deltaMs = Number(searchParams.get("delta"));
+  const forward = !Number.isFinite(deltaMs) || deltaMs >= 0;
+  sendYouTubeKey(youtubeMusicWindow, forward ? "l" : "h");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  return getYouTubeMusicStatus();
 }
+
 async function setYouTubeMusicVolume(searchParams) {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
     return { ok: false, error: "YouTube Music is not open" };

@@ -1744,6 +1744,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     useState(false);
   const wasYouTubePlayingRef = useRef(false);
   const openButtonTimerRef = useRef(null);
+  const youtubeActionLocksRef = useRef({});
   const [youtubeVolume, setYoutubeVolume] = useState(readStoredYouTubeVolume);
   const [youtubeMuted, setYoutubeMuted] = useState(readStoredYouTubeMuted);
   const [volumeOpen, setVolumeOpen] = useState(false);
@@ -1886,6 +1887,27 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   // YouTube progress is sourced from backend status polling to avoid drift/stuck
   // behavior at track boundaries and near end-of-track seeks.
 
+  const youtubeActionCooldowns = {
+    jump: 450,
+    "command-next": 450,
+    "command-previous": 450,
+    "command-shuffle": 450,
+    "command-repeat": 450,
+    "command-toggle": 650,
+    "play-toggle": 650,
+    "window-toggle": 700,
+    volume: 250,
+  };
+
+  function lockYouTubeAction(key) {
+    if (youtubeActionLocksRef.current[key]) return false;
+    youtubeActionLocksRef.current[key] = true;
+    setTimeout(() => {
+      delete youtubeActionLocksRef.current[key];
+    }, youtubeActionCooldowns[key] || 450);
+    return true;
+  }
+
   async function runCommand(command) {
     if (!spotifyReady) {
       const deviceReady = await ensureSpotifyDevice();
@@ -1957,6 +1979,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   }
 
   async function tryYouTubeMusicRandom() {
+    if (!lockYouTubeAction("play-toggle")) return;
     if (youtubeMusicPlaying) {
       setYoutubeTestStatus("Stopping YouTube Music...");
       try {
@@ -1990,6 +2013,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   }
 
   async function openYouTubeMusic() {
+    if (!lockYouTubeAction("window-toggle")) return;
     if (youtubeWindowVisible) {
       setYoutubeTestStatus("Hiding YouTube Music window...");
       try {
@@ -2015,6 +2039,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   }
 
   async function runYouTubeCommand(command) {
+    if (!lockYouTubeAction(`command-${command}`)) return;
     if (!youtubeTrack && command === "toggle") {
       await tryYouTubeMusicRandom();
       return;
@@ -2040,6 +2065,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     }
   }
   async function setYouTubeVolume(value, muted = youtubeMuted) {
+    if (!lockYouTubeAction("volume")) return;
     const nextVolume = clamp(Number(value), 0, 100);
     localStorage.setItem(YOUTUBE_VOLUME_KEY, String(nextVolume));
     localStorage.setItem(YOUTUBE_MUTED_KEY, String(Boolean(muted)));
@@ -2091,6 +2117,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
 
   async function jumpYouTubeBy(deltaMs) {
     if (!isYouTube) return;
+    if (!lockYouTubeAction("jump")) return;
     const currentProgress = Number(youtubeTrack?.progress) || 0;
     const currentDuration = Number(youtubeTrack?.duration) || 0;
     const nextPosition = clamp(currentProgress + deltaMs, 0, currentDuration || 0);
@@ -2101,7 +2128,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     }));
     try {
       const response = await fetch(
-        `/api/youtube-music/seek?position=${encodeURIComponent(nextPosition)}`,
+        `/api/youtube-music/jump?delta=${encodeURIComponent(deltaMs)}`,
       );
       const result = await readJsonResponse(response, "YouTube jump failed");
       setYoutubeTrack(result);
@@ -2206,10 +2233,11 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
         <Heart className="heart" fill="currentColor" />
       </div>
       <div
-        className="progress"
+        className={`progress ${isYouTube ? "is-readonly" : ""}`}
         role="slider"
         tabIndex={0}
         aria-label={`${isYouTube ? "YouTube Music" : "Spotify"} progress`}
+        aria-disabled={isYouTube ? "true" : undefined}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(progress)}
