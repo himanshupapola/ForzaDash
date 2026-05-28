@@ -2,6 +2,7 @@
   "name": "forzadash",
   "version": "3.0.0",
   "private": true,
+  "author": "Himanshu",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -19,6 +20,7 @@
   "build": {
     "appId": "com.forzadash.app",
     "productName": "ForzaDash",
+    "copyright": "Copyright (c) Himanshu",
     "npmRebuild": false,
     "files": [
       "dist/app/**/*",

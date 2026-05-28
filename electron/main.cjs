@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Tray, shell } = require("electron");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
+const https = require("node:https");
 const path = require("node:path");
 
 const DEFAULT_DASHBOARD_PORT = 5173;
@@ -467,6 +468,19 @@ function startDashboardServer() {
         });
       return;
     }
+
+    if (url.pathname === "/api/update-check" && request.method === "GET") {
+      checkForGithubUpdate()
+        .then((result) => {
+          response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify(result));
+        })
+        .catch((error) => {
+          response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: false, error: error?.message || "Update check failed" }));
+        });
+      return;
+    }
     if (url.pathname === "/api/youtube-music/volume") {
       setYouTubeMusicVolume(url.searchParams)
         .then((result) => {
@@ -579,6 +593,15 @@ function createDashboardWindow(dashboardUrl) {
   });
 
   dashboardWindow.loadURL(dashboardUrl);
+  dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url).catch(() => {});
+    return { action: "deny" };
+  });
+  dashboardWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === dashboardUrl) return;
+    event.preventDefault();
+    shell.openExternal(url).catch(() => {});
+  });
   dashboardWindow.webContents.on("before-input-event", (event, input) => {
     if (input.type === "keyDown" && input.alt && input.key === "Enter") {
       event.preventDefault();
@@ -710,6 +733,75 @@ async function openYouTubeMusicWindow() {
     }
   }
   return { ok: true, opened: true };
+}
+
+function normalizeVersionTag(tag) {
+  return String(tag || "").trim().replace(/^v/i, "");
+}
+
+function compareVersions(a, b) {
+  const pa = normalizeVersionTag(a).split(".").map((x) => Number(x) || 0);
+  const pb = normalizeVersionTag(b).split(".").map((x) => Number(x) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da > db) return 1;
+    if (da < db) return -1;
+  }
+  return 0;
+}
+
+function httpsGetJson(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      { headers: { "User-Agent": "ForzaDash", Accept: "application/vnd.github+json", ...headers } },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(body || "{}"));
+          } catch {
+            reject(new Error("Invalid JSON"));
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(5000, () => req.destroy(new Error("Timeout")));
+  });
+}
+
+async function checkForGithubUpdate() {
+  const repo = String(process.env.VITE_GITHUB_REPO || process.env.GITHUB_REPO || "").trim();
+  const currentVersion = app.getVersion();
+  const forceUpdate = String(process.env.VITE_FORCE_UPDATE_AVAILABLE || "").trim() === "true";
+  if (!repo) {
+    return { ok: true, configured: false, currentVersion, updateAvailable: forceUpdate };
+  }
+
+  const latest = await httpsGetJson(`https://api.github.com/repos/${repo}/releases/latest`);
+  const latestVersion = normalizeVersionTag(latest.tag_name || latest.name || "");
+  const updateAvailable =
+    forceUpdate ||
+    (Boolean(latestVersion) && compareVersions(latestVersion, currentVersion) > 0);
+  return {
+    ok: true,
+    configured: true,
+    repo,
+    currentVersion,
+    latestVersion,
+    updateAvailable,
+    releaseUrl: latest.html_url || "",
+  };
 }
 
 async function logoutYouTubeMusic() {

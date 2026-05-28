@@ -301,6 +301,11 @@ button {
   font-weight: 600;
 }
 
+.time-weather > div:first-of-type span {
+  font-size: clamp(12px, 0.78vw, 14px);
+  white-space: nowrap;
+}
+
 .clock {
   min-width: clamp(150px, 9.5vw, 190px);
   padding-left: clamp(12px, 1vw, 20px);

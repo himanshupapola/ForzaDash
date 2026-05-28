@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Car,
@@ -48,6 +48,7 @@ const fallbackTelemetry = {
   throttle: 0,
   brake: 0,
   clutch: 0,
+  steer: 0,
   accelerationX: 0,
   accelerationY: 0,
   accelerationZ: 0,
@@ -69,8 +70,18 @@ const DEFAULT_SETTINGS = {
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
   demoDriveMode: false,
+  speedUnit: "kmh",
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
+
+function toDisplaySpeed(speedKmh, speedUnit) {
+  const kmh = Number(speedKmh) || 0;
+  return speedUnit === "mph" ? kmh * 0.621371 : kmh;
+}
+
+function speedUnitLabel(speedUnit) {
+  return speedUnit === "mph" ? "MPH" : "KM/H";
+}
 
 function createDemoTelemetry(frame) {
   const t = frame / 10;
@@ -1097,6 +1108,29 @@ function useWeather(settings) {
   return weather;
 }
 
+function useUpdateInfo() {
+  const [updateInfo, setUpdateInfo] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const response = await fetch("/api/update-check");
+        const data = await response.json();
+        if (!cancelled) setUpdateInfo(data);
+      } catch {
+        if (!cancelled) setUpdateInfo(null);
+      }
+    }
+    load();
+    const id = window.setInterval(load, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+  return updateInfo;
+}
+
 function App() {
   const settings = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1107,9 +1141,12 @@ function App() {
   );
   const smoothTelemetry = useSmoothedTelemetry(telemetry);
   const weather = useWeather(settings);
+  const updateInfo = useUpdateInfo();
   const hardwareTemperature = useHardwareTemperature();
   const clock = useClock();
   const demoFrameRef = useRef(0);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   useEffect(() => {
     function toggleFullscreen(event) {
@@ -1195,7 +1232,9 @@ function App() {
       ? "ONLINE"
       : "NO PACKETS";
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
-  const speed = Math.round(smoothTelemetry.speedKmh);
+  const speed = Math.round(
+    toDisplaySpeed(smoothTelemetry.speedKmh, settings.speedUnit),
+  );
   const stableGearRef = useRef(1);
   stableGearRef.current = normalizeGear(telemetry.gear, stableGearRef.current);
   const gear = formatGear(stableGearRef.current);
@@ -1212,25 +1251,31 @@ function App() {
         telemetryStatus={telemetryStatus}
         weather={weather}
         clock={clock}
+        updateInfo={updateInfo}
       />
       <section className="main-grid">
-        <TelemetryPanel telemetry={smoothTelemetry} gear={gear} />
+        <TelemetryPanel
+          telemetry={smoothTelemetry}
+          gear={gear}
+          speedUnit={settings.speedUnit}
+        />
         <CenterDial
           telemetry={smoothTelemetry}
           speed={speed}
           gear={gear}
+          speedUnit={settings.speedUnit}
           rpmRatio={rpmRatio}
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
-          <MusicPanel onOpenSettings={() => setSettingsOpen(true)} />
+          <MusicPanel onOpenSettings={openSettings} />
           <WeatherPanel weather={weather} />
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
       {settingsOpen && (
         <SettingsModal
-          onClose={() => setSettingsOpen(false)}
+          onClose={closeSettings}
           telemetryOnline={Boolean(online)}
         />
       )}
@@ -1238,7 +1283,7 @@ function App() {
   );
 }
 
-function TopBar({ online, telemetryStatus, weather, clock }) {
+const TopBar = React.memo(function TopBar({ online, telemetryStatus, weather, clock, updateInfo }) {
   const [clockTime, meridiem] = clock.time.split(" ");
 
   return (
@@ -1274,13 +1319,25 @@ function TopBar({ online, telemetryStatus, weather, clock }) {
           <strong>{clockTime}</strong>
           <span>{meridiem}</span>
           <em>{clock.date}</em>
+          {updateInfo?.updateAvailable && (
+            <em>
+              <a
+                href={updateInfo.releaseUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#31b8ee", textDecoration: "none" }}
+              >
+                Update v{updateInfo.latestVersion} available
+              </a>
+            </em>
+          )}
         </div>
       </div>
     </header>
   );
-}
+});
 
-function TelemetryPanel({ telemetry, gear }) {
+const TelemetryPanel = React.memo(function TelemetryPanel({ telemetry, gear, speedUnit }) {
   const { fuelRange } = getFuelInfo(telemetry);
   const reverseGear = gear === "R";
   const reportedDistance = getTelemetryValue(
@@ -1345,7 +1402,11 @@ function TelemetryPanel({ telemetry, gear }) {
       "%",
       `${number(fuelLiters, 1)} L`,
     ],
-    ["MAX SPEED", formatValue(maxSpeedRef.current, "", 0), "KM/H"],
+    [
+      "MAX SPEED",
+      formatValue(toDisplaySpeed(maxSpeedRef.current, speedUnit), "", 0),
+      speedUnitLabel(speedUnit),
+    ],
     [
       rangeOrDistanceLabel,
       formatValue(rangeOrDistanceValue, "", fuelRange != null ? 0 : 1),
@@ -1367,8 +1428,8 @@ function TelemetryPanel({ telemetry, gear }) {
         <div>
           <MiniStat
             label="SPEED"
-            value={number(telemetry.speedKmh)}
-            unit="KM/H"
+            value={number(toDisplaySpeed(telemetry.speedKmh, speedUnit))}
+            unit={speedUnitLabel(speedUnit)}
           />
           <MiniStat label="RPM" value={number(telemetry.rpm)} />
         </div>
@@ -1397,7 +1458,7 @@ function TelemetryPanel({ telemetry, gear }) {
       </div>
     </section>
   );
-}
+});
 
 function MiniStat({ label, value, unit }) {
   return (
@@ -1411,7 +1472,7 @@ function MiniStat({ label, value, unit }) {
   );
 }
 
-function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
+const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hardwareTemperature, speedUnit }) {
   const reverseGear = gear === "R";
   const fallbackGearMaxSpeeds = {
     1: 65,
@@ -1622,7 +1683,7 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
         />
         <div className={`dial-speed-readout ${needleHot ? "hot" : ""}`}>
           <strong>{speed}</strong>
-          <em>KM/H</em>
+          <em>{speedUnitLabel(speedUnit)}</em>
         </div>
         <div className="dial-lower">
           <div className="lower-g-meter">
@@ -1657,9 +1718,9 @@ function CenterDial({ telemetry, speed, gear, hardwareTemperature }) {
       </div>
     </section>
   );
-}
+});
 
-function MusicPanel({ onOpenSettings }) {
+const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   const settings = useSettings();
   const configured = isSpotifyConfigured();
   const spotifyLoggedIn = hasSpotifyLogin();
@@ -2269,7 +2330,7 @@ function MusicPanel({ onOpenSettings }) {
       </div>
     </section>
   );
-}
+});
 
 function SettingsModal({ onClose, telemetryOnline = false }) {
   const settings = useSettings();
@@ -2306,7 +2367,6 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
       spotifyClientId: draft.spotifyClientId.trim(),
       demoDriveMode: telemetryOnline ? false : Boolean(draft.demoDriveMode),
-      backgroundColor: normalizeColor(draft.backgroundColor),
     });
     setSaved(true);
     onClose();
@@ -2418,15 +2478,14 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
             />
           </label>
           <label>
-            <span>Background Color</span>
-            <input
-              className="color-input"
-              type="color"
-              value={normalizeColor(draft.backgroundColor)}
-              onChange={(event) =>
-                updateField("backgroundColor", event.target.value)
-              }
-            />
+            <span>Speed Unit</span>
+            <select
+              value={draft.speedUnit || "kmh"}
+              onChange={(event) => updateField("speedUnit", event.target.value)}
+            >
+              <option value="kmh">KM/H</option>
+              <option value="mph">MPH</option>
+            </select>
           </label>
         </div>
         <p className="settings-note">
@@ -2461,7 +2520,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
   );
 }
 
-function WeatherPanel({ weather }) {
+const WeatherPanel = React.memo(function WeatherPanel({ weather }) {
   return (
     <section className="glass-panel weather-panel">
       <div className="weather-icon-block">
@@ -2485,9 +2544,9 @@ function WeatherPanel({ weather }) {
       </div>
     </section>
   );
-}
+});
 
-function BottomSystems({ telemetry }) {
+const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
   const lastTireTempsRef = useRef([52, 52, 50, 50]);
   const lastSuspensionRef = useRef([2.2, 2.2, 2.0, 2.0]);
   const lastTimestampRef = useRef(Date.now());
@@ -2542,7 +2601,7 @@ function BottomSystems({ telemetry }) {
       <PowerGraph telemetry={telemetry} />
     </section>
   );
-}
+});
 
 function SystemCar({
   title = "",
@@ -2569,7 +2628,7 @@ function SystemCar({
   );
 }
 
-function PowerGraph({ telemetry }) {
+const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
   const graphWindowMs = 9000;
   const [samples, setSamples] = useState(() => [
     { at: Date.now(), power: 0, torque: 0 },
@@ -2671,7 +2730,7 @@ function PowerGraph({ telemetry }) {
       </div>
     </div>
   );
-}
+});
 
 function Turbo({ value }) {
   return (
@@ -2686,7 +2745,7 @@ function Turbo({ value }) {
   );
 }
 
-function InputBars({ telemetry }) {
+const InputBars = React.memo(function InputBars({ telemetry }) {
   const rows = [
     ["THROTTLE", telemetry.throttle, "#21e78a"],
     ["BRAKE", telemetry.brake, "#ff3d4f"],
@@ -2708,6 +2767,6 @@ function InputBars({ telemetry }) {
       ))}
     </div>
   );
-}
+});
 
 createRoot(document.getElementById("root")).render(<App />);
