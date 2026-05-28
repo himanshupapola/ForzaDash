@@ -6,6 +6,8 @@ ForzaDash is not a mod menu, trainer, or memory editor. It does not patch, injec
 
 If you want to work along with me on project or have some really good ideas on this @boring_coder Telegram
 
+😒 Next idea: Integrating OpenTrack-like tracking features into this, so I don’t have to open OpenTrack every time.
+
 ## Demo
 
 https://github.com/user-attachments/assets/06b40da0-ab47-4fc6-8be9-ff057543def3
