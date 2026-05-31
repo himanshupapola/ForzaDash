@@ -11,6 +11,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Timer,
   Volume2,
   VolumeX,
   Wifi,
@@ -35,6 +36,7 @@ import {
 } from "./spotify";
 import "./styles.css";
 import speedometerBg from "../spm.png";
+import horizonMap from "../map.jpg";
 
 const fallbackTelemetry = {
   status: "WAITING",
@@ -58,6 +60,7 @@ const fallbackTelemetry = {
 };
 
 const SETTINGS_KEY = "forzadash_settings";
+const MAP_STATE_KEY = "forzadash_last_map_state";
 const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
 const YOUTUBE_VOLUME_KEY = "forzadash_youtube_volume";
 const YOUTUBE_MUTED_KEY = "forzadash_youtube_muted";
@@ -73,6 +76,19 @@ const DEFAULT_SETTINGS = {
   speedUnit: "kmh",
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
+const FH6_MAP_IMAGE_SIZE = 6144;
+const FH6_MAP_FACTOR_X = -3.5131;
+const FH6_MAP_OFFSET_X = -172.55;
+const FH6_MAP_FACTOR_Y = 3.512;
+const FH6_MAP_OFFSET_Y = 12.86;
+const GPS_MAP_ZOOM = 1.82;
+const GPS_MAP_CENTER_OFFSET_X = 0;
+const GPS_MAP_CENTER_OFFSET_Y = 0;
+const GPS_MAP_STYLE = {
+  background: "#02080c",
+  road: "#edf7fb",
+  roadGlow: "#25c8ff",
+};
 
 function toDisplaySpeed(speedKmh, speedUnit) {
   const kmh = Number(speedKmh) || 0;
@@ -83,6 +99,63 @@ function speedUnitLabel(speedUnit) {
   return speedUnit === "mph" ? "MPH" : "KM/H";
 }
 
+function worldToMapPoint(telemetry) {
+  const worldX = Number(telemetry.positionX);
+  const worldY = Number(telemetry.positionZ);
+  if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return null;
+  if (telemetry.status !== "DEMO" && Number(telemetry.isRaceOn) === 0) {
+    return null;
+  }
+  if (
+    telemetry.status !== "DEMO" &&
+    Math.abs(worldX) < 0.001 &&
+    Math.abs(worldY) < 0.001
+  ) {
+    return null;
+  }
+
+  return {
+    x: FH6_MAP_IMAGE_SIZE / 2 - (worldX / FH6_MAP_FACTOR_X + FH6_MAP_OFFSET_X),
+    y: FH6_MAP_IMAGE_SIZE / 2 - (worldY / FH6_MAP_FACTOR_Y + FH6_MAP_OFFSET_Y),
+  };
+}
+
+function readStoredMapState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(MAP_STATE_KEY) || "null");
+    const point = stored?.point;
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      return null;
+    }
+    return {
+      point: {
+        x: clamp(point.x, 0, FH6_MAP_IMAGE_SIZE),
+        y: clamp(point.y, 0, FH6_MAP_IMAGE_SIZE),
+      },
+      yaw: Number.isFinite(stored.yaw) ? stored.yaw : 0,
+      speed: Number.isFinite(stored.speed) ? stored.speed : 0,
+      hasPosition: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeMapState(mapState) {
+  try {
+    localStorage.setItem(
+      MAP_STATE_KEY,
+      JSON.stringify({
+        point: mapState.point,
+        yaw: mapState.yaw,
+        speed: mapState.speed,
+      }),
+    );
+  } catch {
+    // Best effort only; minimap should still work if storage is unavailable.
+  }
+}
+
 function createDemoTelemetry(frame) {
   const t = frame / 10;
   const speedKmh = clamp(
@@ -91,14 +164,26 @@ function createDemoTelemetry(frame) {
     248,
   );
   const maxRpm = 8600;
-  const rpm = clamp(1500 + speedKmh * 36 + Math.sin(t * 1.45) * 520, 900, maxRpm);
+  const rpm = clamp(
+    1500 + speedKmh * 36 + Math.sin(t * 1.45) * 520,
+    900,
+    maxRpm,
+  );
   const gear = clamp(Math.floor(speedKmh / 34) + 1, 1, 7);
   const throttle = clamp(46 + Math.sin(t * 1.1) * 36, 4, 100);
   const brake = clamp(Math.sin(t * 0.7 + 0.8) > 0.82 ? 22 : 0, 0, 100);
   const clutch = clamp(Math.sin(t * 0.45 + 1.7) * 8 + 6, 0, 32);
-  const boostBar = clamp(0.2 + throttle * 0.015 + Math.sin(t * 2.1) * 0.09, 0, 2);
+  const boostBar = clamp(
+    0.2 + throttle * 0.015 + Math.sin(t * 2.1) * 0.09,
+    0,
+    2,
+  );
   const powerHp = clamp(95 + (rpm / maxRpm) * 510 + throttle * 1.15, 70, 760);
-  const torqueNm = clamp(170 + (rpm / maxRpm) * 570 + throttle * 1.55, 120, 980);
+  const torqueNm = clamp(
+    170 + (rpm / maxRpm) * 570 + throttle * 1.55,
+    120,
+    980,
+  );
 
   return {
     ...fallbackTelemetry,
@@ -214,6 +299,7 @@ function normalizeColor(value, fallback = DEFAULT_SETTINGS.backgroundColor) {
   const color = String(value || "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
+
 function readStoredYouTubeVolume() {
   const value = Number(localStorage.getItem(YOUTUBE_VOLUME_KEY));
   return Number.isFinite(value) ? clamp(value, 0, 100) : 100;
@@ -622,7 +708,10 @@ function hasDirectSuspensionTravel(telemetry) {
     telemetry.suspensionTravelMetersFrontRight,
     telemetry.suspensionTravelMetersRearLeft,
     telemetry.suspensionTravelMetersRearRight,
-  ].some((value) => Number.isFinite(Number(value)) && Math.abs(Number(value)) > 0.001);
+  ].some(
+    (value) =>
+      Number.isFinite(Number(value)) && Math.abs(Number(value)) > 0.001,
+  );
 }
 
 function calculateDriftAngle(telemetry) {
@@ -631,7 +720,9 @@ function calculateDriftAngle(telemetry) {
   const speed = Math.hypot(lateral, forward);
   if (speed >= 3) {
     return clamp(
-      Math.round(Math.abs(Math.atan2(lateral, Math.abs(forward))) * (180 / Math.PI)),
+      Math.round(
+        Math.abs(Math.atan2(lateral, Math.abs(forward))) * (180 / Math.PI),
+      ),
       0,
       90,
     );
@@ -651,7 +742,11 @@ function calculateDriftAngle(telemetry) {
 function getGForces(telemetry) {
   return {
     lateral: clamp((Number(telemetry.accelerationX) || 0) / 9.80665, -3, 3),
-    longitudinal: clamp((Number(telemetry.accelerationZ) || 0) / 9.80665, -3, 3),
+    longitudinal: clamp(
+      (Number(telemetry.accelerationZ) || 0) / 9.80665,
+      -3,
+      3,
+    ),
   };
 }
 
@@ -1150,6 +1245,7 @@ function App() {
   const hardwareTemperature = useHardwareTemperature();
   const clock = useClock();
   const demoFrameRef = useRef(0);
+  const lastLiveTelemetryRef = useRef(null);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
@@ -1243,6 +1339,14 @@ function App() {
   const stableGearRef = useRef(1);
   stableGearRef.current = normalizeGear(telemetry.gear, stableGearRef.current);
   const gear = formatGear(stableGearRef.current);
+  if (
+    online &&
+    smoothTelemetry?.positionX != null &&
+    smoothTelemetry?.positionZ != null
+  ) {
+    lastLiveTelemetryRef.current = smoothTelemetry;
+  }
+  const mapTelemetry = lastLiveTelemetryRef.current || smoothTelemetry;
 
   return (
     <main
@@ -1259,11 +1363,14 @@ function App() {
         updateInfo={updateInfo}
       />
       <section className="main-grid">
-        <TelemetryPanel
-          telemetry={smoothTelemetry}
-          gear={gear}
-          speedUnit={settings.speedUnit}
-        />
+        <aside className="left-stack">
+          <TelemetryPanel
+            telemetry={smoothTelemetry}
+            gear={gear}
+            speedUnit={settings.speedUnit}
+          />
+          <LiveMapPanel telemetry={mapTelemetry} online={online} />
+        </aside>
         <CenterDial
           telemetry={smoothTelemetry}
           speed={speed}
@@ -1273,8 +1380,8 @@ function App() {
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
+          <PowerStatsPanel telemetry={smoothTelemetry} />
           <MusicPanel onOpenSettings={openSettings} />
-          <WeatherPanel weather={weather} />
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
@@ -1288,7 +1395,13 @@ function App() {
   );
 }
 
-const TopBar = React.memo(function TopBar({ online, telemetryStatus, weather, clock, updateInfo }) {
+const TopBar = React.memo(function TopBar({
+  online,
+  telemetryStatus,
+  weather,
+  clock,
+  updateInfo,
+}) {
   const [clockTime, meridiem] = clock.time.split(" ");
 
   return (
@@ -1342,7 +1455,127 @@ const TopBar = React.memo(function TopBar({ online, telemetryStatus, weather, cl
   );
 });
 
-const TelemetryPanel = React.memo(function TelemetryPanel({ telemetry, gear, speedUnit }) {
+const LiveMapPanel = React.memo(function LiveMapPanel({ telemetry, online }) {
+  const driveStatsRef = useRef({
+    lastAt: Date.now(),
+    minutes: 0,
+    distanceKm: 0,
+  });
+  const lastMapStateRef = useRef(
+    readStoredMapState() || {
+      point: null,
+      yaw: 0,
+      speed: 0,
+      hasPosition: false,
+    },
+  );
+  const point = worldToMapPoint(telemetry);
+  const liveYaw = Number(telemetry.yaw);
+  const liveSpeed = Math.round(Number(telemetry.speedKmh) || 0);
+  const liveHasPosition = Boolean(point);
+
+  if (liveHasPosition) {
+    lastMapStateRef.current = {
+      point,
+      yaw: Number.isFinite(liveYaw) ? liveYaw : lastMapStateRef.current.yaw,
+      speed: liveSpeed,
+      hasPosition: true,
+    };
+    storeMapState(lastMapStateRef.current);
+  }
+
+  const mapState = lastMapStateRef.current;
+  const yaw = mapState.yaw;
+  const speed = mapState.hasPosition ? mapState.speed : liveSpeed;
+  const hasPosition = mapState.hasPosition;
+  const mapPoint = mapState.point;
+  const mapX = mapPoint
+    ? clamp(mapPoint.x, 0, FH6_MAP_IMAGE_SIZE)
+    : FH6_MAP_IMAGE_SIZE / 2;
+  const mapY = mapPoint
+    ? clamp(mapPoint.y, 0, FH6_MAP_IMAGE_SIZE)
+    : FH6_MAP_IMAGE_SIZE / 2;
+  const centeredMapX = clamp(
+    mapX + GPS_MAP_CENTER_OFFSET_X,
+    0,
+    FH6_MAP_IMAGE_SIZE,
+  );
+  const centeredMapY = clamp(
+    mapY + GPS_MAP_CENTER_OFFSET_Y,
+    0,
+    FH6_MAP_IMAGE_SIZE,
+  );
+  const mapRotation = Number.isFinite(yaw) ? -yaw : 0;
+  const headingDeg = Number.isFinite(yaw) ? yaw * (180 / Math.PI) : 0;
+  const now = Date.now();
+  const elapsedSeconds = clamp(
+    (now - driveStatsRef.current.lastAt) / 1000,
+    0,
+    2,
+  );
+  driveStatsRef.current.lastAt = now;
+  if (online && hasPosition && speed > 1) {
+    driveStatsRef.current.minutes += elapsedSeconds / 60;
+    driveStatsRef.current.distanceKm += (speed / 3600) * elapsedSeconds;
+  }
+  const driveMinutes = Math.floor(driveStatsRef.current.minutes);
+  const drivenKm = driveStatsRef.current.distanceKm.toFixed(1);
+
+  return (
+    <section className="glass-panel live-map-panel">
+      <div
+        className="live-map"
+        style={{
+          "--gps-bg": GPS_MAP_STYLE.background,
+          "--gps-road": GPS_MAP_STYLE.road,
+          "--gps-road-glow": GPS_MAP_STYLE.roadGlow,
+        }}
+      >
+        <div className="minimap-title">
+          <strong>NAVIGATION</strong>
+        </div>
+        <div
+          className="live-map-world"
+          style={{
+            transform: `rotate(${mapRotation}rad) scale(${GPS_MAP_ZOOM})`,
+            "--map-x": `${centeredMapX}px`,
+            "--map-y": `${centeredMapY}px`,
+          }}
+        >
+          <img
+            src={horizonMap}
+            alt=""
+            style={{
+              transform: `translate(-${centeredMapX}px, -${centeredMapY}px)`,
+            }}
+          />
+        </div>
+        <div
+          className={`live-map-marker ${online && hasPosition ? "active" : ""}`}
+          style={{ transform: "translate(-50%, -50%)" }}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 24 24">
+            <path d="M11.7 1.6 21.9 22.1 12.1 17.4 3 22.3 11.7 1.6Z" />
+          </svg>
+        </div>
+        <div className="live-map-vignette" />
+        <div className="navigation-stats">
+          <span>
+            <Timer size={16} /> {driveMinutes} min
+          </span>
+          <span>{drivenKm} km</span>
+        </div>
+      </div>
+    </section>
+  );
+});
+
+const TelemetryPanel = React.memo(function TelemetryPanel({
+  telemetry,
+  gear,
+  speedUnit,
+}) {
   const { fuelRange } = getFuelInfo(telemetry);
   const reverseGear = gear === "R";
   const reportedDistance = getTelemetryValue(
@@ -1394,34 +1627,9 @@ const TelemetryPanel = React.memo(function TelemetryPanel({ telemetry, gear, spe
     maxSpeedRef.current = Math.max(maxSpeedRef.current, currentSpeed);
   }
 
-  const rows = [
-    ["POWER", number(telemetry.powerHp), "HP"],
-    ["TORQUE", number(telemetry.torqueNm), "NM"],
-    ["BOOST", number(Math.abs(telemetry.boostBar), 2), "BAR"],
-    ["THROTTLE", number(telemetry.throttle), "%"],
-    ["BRAKE", number(telemetry.brake), "%"],
-    ["CLUTCH", number(telemetry.clutch), "%"],
-    [
-      "FUEL",
-      formatValue(fuelPercent, "", 0),
-      "%",
-      `${number(fuelLiters, 1)} L`,
-    ],
-    [
-      "MAX SPEED",
-      formatValue(toDisplaySpeed(maxSpeedRef.current, speedUnit), "", 0),
-      speedUnitLabel(speedUnit),
-    ],
-    [
-      rangeOrDistanceLabel,
-      formatValue(rangeOrDistanceValue, "", fuelRange != null ? 0 : 1),
-      "KM",
-    ],
-  ];
-
   return (
     <section className="glass-panel telemetry-panel">
-      <h2>VEHICLE TELEMETRY</h2>
+      <h2>VEHICLE STATUS</h2>
       <div className="hero-telemetry">
         <div>
           <span>GEAR</span>
@@ -1435,29 +1643,72 @@ const TelemetryPanel = React.memo(function TelemetryPanel({ telemetry, gear, spe
             label="SPEED"
             value={number(toDisplaySpeed(telemetry.speedKmh, speedUnit))}
             unit={speedUnitLabel(speedUnit)}
+            fill={clamp(toDisplaySpeed(telemetry.speedKmh, speedUnit) / 320, 0, 1)}
           />
-          <MiniStat label="RPM" value={number(telemetry.rpm)} />
+          <MiniStat
+            label="RPM"
+            value={number(telemetry.rpm)}
+            fill={clamp((telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 1, 1), 0, 1)}
+          />
         </div>
       </div>
-      <div className="stat-grid">
-        {rows.map(([label, value, unit, sub]) => (
-          <div className="stat-cell" key={label}>
-            <span>{label}</span>
+    </section>
+  );
+});
+
+const PowerStatsPanel = React.memo(function PowerStatsPanel({ telemetry }) {
+  const rows = [
+    {
+      label: "POWER",
+      value: number(telemetry.powerHp),
+      unit: "HP",
+      raw: telemetry.powerHp || 0,
+      max: 800,
+      fill: clamp((telemetry.powerHp || 0) / 800, 0, 1),
+      accent: "cyan",
+    },
+    {
+      label: "TORQUE",
+      value: number(Math.max(0, telemetry.torqueNm || 0)),
+      unit: "NM",
+      raw: Math.max(0, telemetry.torqueNm || 0),
+      max: 1000,
+      fill: clamp(Math.max(0, telemetry.torqueNm || 0) / 1000, 0, 1),
+      accent: "violet",
+    },
+    {
+      label: "BOOST",
+      value: number(Math.abs(telemetry.boostBar), 2),
+      unit: "BAR",
+      raw: Math.abs(telemetry.boostBar || 0),
+      max: 2,
+      fill: clamp(Math.abs(telemetry.boostBar || 0) / 2, 0, 1),
+      accent: "red",
+    },
+  ];
+
+  return (
+    <section className="glass-panel power-stats-panel">
+      <h2>POWER & TORQUE</h2>
+      <div className="power-telemetry-strip">
+        {rows.map(({ label, value, unit, fill, accent }) => (
+          <div
+            className={`performance-card ${accent}`}
+            key={label}
+            style={{
+              "--metric-fill": `${fill * 100}%`,
+            }}
+          >
+            <div className="performance-card-head">
+              <span>{label}</span>
+            </div>
             <strong>
               {value}
-              {unit === "%" && <small>%</small>}
+              <em>{unit}</em>
             </strong>
-            <em>{sub || (unit !== "%" ? unit : "")}</em>
-            {(label === "THROTTLE" ||
-              label === "BRAKE" ||
-              label === "CLUTCH") && (
-              <i
-                style={{
-                  "--fill": `${label === "THROTTLE" ? telemetry.throttle : label === "BRAKE" ? telemetry.brake : telemetry.clutch}%`,
-                  "--bar": label === "BRAKE" ? "#ff3d4f" : "#28f28a",
-                }}
-              />
-            )}
+            <div className="performance-meter" aria-hidden="true">
+              <i />
+            </div>
           </div>
         ))}
       </div>
@@ -1465,19 +1716,28 @@ const TelemetryPanel = React.memo(function TelemetryPanel({ telemetry, gear, spe
   );
 });
 
-function MiniStat({ label, value, unit }) {
+function MiniStat({ label, value, unit, fill = 0 }) {
   return (
-    <div className="mini-stat">
+    <div
+      className="mini-stat"
+      style={{ "--stat-fill": `${fill * 100}%`, "--stat-alpha": fill }}
+    >
       <span>{label}</span>
       <strong>
         {value}
-        <small>{unit}</small>
+        <small>{unit || label}</small>
       </strong>
     </div>
   );
 }
 
-const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hardwareTemperature, speedUnit }) {
+const CenterDial = React.memo(function CenterDial({
+  telemetry,
+  speed,
+  gear,
+  hardwareTemperature,
+  speedUnit,
+}) {
   const reverseGear = gear === "R";
   const fallbackGearMaxSpeeds = {
     1: 65,
@@ -1520,11 +1780,11 @@ const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hard
     learnedGearMaxRef.current[gearNumber] || fallbackGearMaxSpeed;
   const throttleRatio = clamp((telemetry.throttle || 0) / 100, 0, 1);
   const brakeRatio = clamp((telemetry.brake || 0) / 100, 0, 1);
-  const driveGearRatio = Number.isFinite(gearNumber) && gearNumber > 0
-    ? clamp(speed / Math.max(gearMaxSpeed, 1), 0, 1)
-    : 0;
-  const rpmNeedleRatio =
-    speed > 4 || throttleRatio > 0.08 ? liveRpmRatio : 0;
+  const driveGearRatio =
+    Number.isFinite(gearNumber) && gearNumber > 0
+      ? clamp(speed / Math.max(gearMaxSpeed, 1), 0, 1)
+      : 0;
+  const rpmNeedleRatio = speed > 4 || throttleRatio > 0.08 ? liveRpmRatio : 0;
   const gearSpeedRatio = Math.max(driveGearRatio, rpmNeedleRatio);
   const needleRatioRef = useRef(0);
   const needleTimeRef = useRef(Date.now());
@@ -1555,9 +1815,7 @@ const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hard
   const forceFullSpeedGlow = false;
   const shiftLightRatio = Math.max(needleRatioRef.current, rpmNeedleRatio);
   const glowFillRatio = clamp(shiftLightRatio / 0.9, 0, 1);
-  const speedGlowProgress = forceFullSpeedGlow
-    ? 100
-    : glowFillRatio * 100;
+  const speedGlowProgress = forceFullSpeedGlow ? 100 : glowFillRatio * 100;
   const speedGlowHot = forceFullSpeedGlow
     ? 1
     : clamp((shiftLightRatio - 0.62) / 0.38, 0, 1);
@@ -1572,8 +1830,10 @@ const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hard
     longitudinal: 0,
   });
   const packetForces = getGForces(telemetry);
-  const packetGForce =
-    Math.hypot(packetForces.lateral || 0, packetForces.longitudinal || 0);
+  const packetGForce = Math.hypot(
+    packetForces.lateral || 0,
+    packetForces.longitudinal || 0,
+  );
   const gNow = Date.now();
   const gElapsed = clamp((gNow - lastGForceRef.current.at) / 1000, 0.016, 0.25);
   const speedDeltaMps =
@@ -1613,8 +1873,7 @@ const CenterDial = React.memo(function CenterDial({ telemetry, speed, gear, hard
   const derivedTempTarget = clamp(
     82 +
       clamp(telemetry.throttle || 0, 0, 100) * 0.14 +
-      liveRpmRatio *
-        18 +
+      liveRpmRatio * 18 +
       clamp(telemetry.boostBar || 0, 0, 2) * 2 -
       clamp(telemetry.speedKmh || 0, 0, 260) * 0.025,
     78,
@@ -1822,7 +2081,8 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
   }, [musicProvider]);
   useEffect(() => {
     function closeVolume(event) {
-      if (!event.target?.closest?.(".youtube-volume-control")) setVolumeOpen(false);
+      if (!event.target?.closest?.(".youtube-volume-control"))
+        setVolumeOpen(false);
     }
     window.addEventListener("pointerdown", closeVolume);
     return () => window.removeEventListener("pointerdown", closeVolume);
@@ -1844,7 +2104,11 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           setYoutubeMusicPlaying(Boolean(result.isPlaying));
           setYoutubeWindowVisible(Boolean(result.visible));
           if (!volumeOpen) {
-            setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : readStoredYouTubeVolume());
+            setYoutubeVolume(
+              Number.isFinite(result.volume)
+                ? result.volume
+                : readStoredYouTubeVolume(),
+            );
             setYoutubeMuted(Boolean(result.muted));
           }
         }
@@ -1852,7 +2116,8 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     }
 
     refreshYouTube();
-    const intervalMs = youtubeMusicPlaying || youtubeWindowVisible ? 1000 : 2500;
+    const intervalMs =
+      youtubeMusicPlaying || youtubeWindowVisible ? 1000 : 2500;
     const id = setInterval(refreshYouTube, intervalMs);
     return () => {
       cancelled = true;
@@ -2061,7 +2326,9 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
       );
       setYoutubeTrack(result);
       setYoutubeMusicPlaying(Boolean(result.isPlaying));
-      setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : youtubeVolume);
+      setYoutubeVolume(
+        Number.isFinite(result.volume) ? result.volume : youtubeVolume,
+      );
       setYoutubeMuted(Boolean(result.muted));
       setYoutubeTestStatus(
         result.title ? `YouTube: ${result.title}` : "YouTube Music",
@@ -2083,7 +2350,9 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
       );
       const result = await readJsonResponse(response, "Volume failed");
       setYoutubeTrack(result);
-      setYoutubeVolume(Number.isFinite(result.volume) ? result.volume : nextVolume);
+      setYoutubeVolume(
+        Number.isFinite(result.volume) ? result.volume : nextVolume,
+      );
       setYoutubeMuted(Boolean(result.muted));
     } catch (error) {
       setYoutubeTestStatus(error.message || "YouTube Music needs Electron");
@@ -2126,7 +2395,11 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     if (!lockYouTubeAction("jump")) return;
     const currentProgress = Number(youtubeTrack?.progress) || 0;
     const currentDuration = Number(youtubeTrack?.duration) || 0;
-    const nextPosition = clamp(currentProgress + deltaMs, 0, currentDuration || 0);
+    const nextPosition = clamp(
+      currentProgress + deltaMs,
+      0,
+      currentDuration || 0,
+    );
     setYoutubeTrack((current) => ({
       ...(current || {}),
       progress: nextPosition,
@@ -2157,7 +2430,9 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     ? youtubeTestStatus || youtubeTrack?.album || "YouTube Music ready"
     : track?.album?.name ||
       (configured ? "Playback controls ready" : "Spotify login unavailable");
-  const image = isYouTube ? youtubeTrack?.image : track?.album?.images?.[0]?.url;
+  const image = isYouTube
+    ? youtubeTrack?.image
+    : track?.album?.images?.[0]?.url;
   const duration = isYouTube
     ? youtubeTrack?.duration || 200000
     : track?.duration_ms || 200000;
@@ -2190,15 +2465,16 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           <img className="spotify-logo" src={spotifyLogo} alt="" />
         )}
         <h2>{isYouTube ? "YOUTUBE" : "SPOTIFY"}</h2>
-        {isYouTube && (!youtubeMusicPlaying || keepYouTubeOpenButtonVisible) && (
-          <button
-            className="youtube-open-button"
-            type="button"
-            onClick={openYouTubeMusic}
-          >
-            {youtubeWindowVisible ? "HIDE YT" : "OPEN YT"}
-          </button>
-        )}
+        {isYouTube &&
+          (!youtubeMusicPlaying || keepYouTubeOpenButtonVisible) && (
+            <button
+              className="youtube-open-button"
+              type="button"
+              onClick={openYouTubeMusic}
+            >
+              {youtubeWindowVisible ? "HIDE YT" : "OPEN YT"}
+            </button>
+          )}
         <button
           className={`provider-toggle ${isYouTube && youtubeMusicPlaying ? "is-hidden" : ""}`}
           type="button"
@@ -2238,23 +2514,23 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
         </div>
         <Heart className="heart" fill="currentColor" />
       </div>
-      <div
-        className={`progress ${isYouTube ? "is-readonly" : ""}`}
-        role="slider"
-        tabIndex={0}
-        aria-label={`${isYouTube ? "YouTube Music" : "Spotify"} progress`}
-        aria-disabled={isYouTube ? "true" : undefined}
-        aria-valuemin={0}
-        aria-valuemax={Math.round(duration)}
-        aria-valuenow={Math.round(progress)}
-        onClick={seekPlayback}
-        style={{
-          "--progress": `${progressPct}%`,
-          "--elapsed": `"${formatTime(progress)}"`,
-          "--duration": `"${formatTime(duration)}"`,
-        }}
-      >
-        <i />
+      <div className="progress-wrap">
+        <div
+          className={`progress ${isYouTube ? "is-readonly" : ""}`}
+          role="slider"
+          tabIndex={0}
+          aria-label={`${isYouTube ? "YouTube Music" : "Spotify"} progress`}
+          aria-disabled={isYouTube ? "true" : undefined}
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(progress)}
+          onClick={seekPlayback}
+          style={{
+            "--progress": `${progressPct}%`,
+          }}
+        >
+          <i />
+        </div>
       </div>
       <div className="music-controls">
         {!isYouTube && (
@@ -2270,14 +2546,32 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
         )}
         {isYouTube && (
           <div className="youtube-volume-control">
-            <button type="button" className="side-control" aria-label="YouTube Music volume" onClick={() => setVolumeOpen((v) => !v)} onDoubleClick={toggleYouTubeMute}>
+            <button
+              type="button"
+              className="side-control"
+              aria-label="YouTube Music volume"
+              onClick={() => setVolumeOpen((v) => !v)}
+              onDoubleClick={toggleYouTubeMute}
+            >
               {youtubeMuted || youtubeVolume === 0 ? <VolumeX /> : <Volume2 />}
             </button>
             {volumeOpen && (
               <div className="youtube-volume-popover">
-                <button type="button" aria-label="Raise YouTube Music volume" onClick={() => setYouTubeVolume(youtubeVolume + 10, false)}><Plus /></button>
+                <button
+                  type="button"
+                  aria-label="Raise YouTube Music volume"
+                  onClick={() => setYouTubeVolume(youtubeVolume + 10, false)}
+                >
+                  <Plus />
+                </button>
                 <strong>{youtubeMuted ? 0 : youtubeVolume}%</strong>
-                <button type="button" aria-label="Lower YouTube Music volume" onClick={() => setYouTubeVolume(youtubeVolume - 10, false)}><Minus /></button>
+                <button
+                  type="button"
+                  aria-label="Lower YouTube Music volume"
+                  onClick={() => setYouTubeVolume(youtubeVolume - 10, false)}
+                >
+                  <Minus />
+                </button>
               </div>
             )}
           </div>
@@ -2678,34 +2972,56 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
   function toLivePath(key) {
     if (visibleSamples.length < 2) return "";
 
-    return visibleSamples
-      .map((sample, index) => {
+    const points = visibleSamples.map((sample) => {
         const x = clamp(
           100 - ((now - sample.at) / graphWindowMs) * 100,
           0,
           100,
         );
         const y = clamp(100 - (sample[key] / scaleMax) * 100, 0, 100);
-        return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+        return { x, y };
+      });
+
+    if (points[0].x > 0) {
+      points.unshift({ x: 0, y: points[0].y });
+    }
+
+    return points
+      .map((point, index) => {
+        if (index === 0) return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+        const previous = points[index - 1];
+        const controlX = (previous.x + point.x) / 2;
+        return `C ${controlX.toFixed(2)} ${previous.y.toFixed(2)} ${controlX.toFixed(2)} ${point.y.toFixed(2)} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
       })
       .join(" ");
   }
 
+  function toAreaPath(path) {
+    if (!path) return "";
+    const firstMatch = path.match(/^M\s+([\d.]+)\s+([\d.]+)/);
+    const lastMatch = path.match(/(?:M|L|C)\s+(?:[\d.]+\s+[\d.]+\s+){0,2}([\d.]+)\s+([\d.]+)$/);
+    if (!firstMatch || !lastMatch) return "";
+    return `${path} L ${lastMatch[1]} 100 L ${firstMatch[1]} 100 Z`;
+  }
+
   const torquePath = toLivePath("torque");
   const powerPath = toLivePath("power");
-  const yLabels = [
-    scaleMax,
-    Math.round(scaleMax * 0.67),
-    Math.round(scaleMax * 0.33),
-    0,
-  ];
-
+  const torqueAreaPath = toAreaPath(torquePath);
+  const powerAreaPath = toAreaPath(powerPath);
+  const latestTorque = Math.max(0, Math.round(telemetry.torqueNm || 0));
+  const latestPower = Math.max(0, Math.round(telemetry.powerHp || 0));
   return (
     <div className="system-card power-graph-card">
       <div className="power-graph-title">
-        <h3>LIVE POWER</h3>
-        <span className="legend torque">TORQUE (NM)</span>
-        <span className="legend power">POWER (HP)</span>
+        <h3>POWER</h3>
+        <div className="power-current">
+          <span className="power-current-torque">
+            ✦ {latestTorque} <small>NM</small>
+          </span>
+          <span className="power-current-hp">
+            ✦ {latestPower} <small>HP</small>
+          </span>
+        </div>
       </div>
       <svg
         className="power-graph"
@@ -2721,6 +3037,8 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
             <line key={`v-${x}`} x1={x} y1="0" x2={x} y2="100" />
           ))}
         </g>
+        <path className="torque-area live-area" d={torqueAreaPath} />
+        <path className="power-area live-area" d={powerAreaPath} />
         <path className="torque-line active-curve live-curve" d={torquePath} />
         <path className="power-line active-curve live-curve" d={powerPath} />
       </svg>
@@ -2729,16 +3047,6 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
         <span>-6s</span>
         <span>-3s</span>
         <span>NOW</span>
-      </div>
-      <div className="graph-axis y-axis-left">
-        {yLabels.map((label) => (
-          <span key={`torque-${label}`}>{label}</span>
-        ))}
-      </div>
-      <div className="graph-axis y-axis-right">
-        {yLabels.map((label) => (
-          <span key={`power-${label}`}>{label}</span>
-        ))}
       </div>
     </div>
   );
@@ -2759,18 +3067,21 @@ function Turbo({ value }) {
 
 const InputBars = React.memo(function InputBars({ telemetry }) {
   const rows = [
-    ["THROTTLE", telemetry.throttle, "#21e78a"],
-    ["BRAKE", telemetry.brake, "#ff3d4f"],
-    ["CLUTCH", telemetry.clutch, "#25c8ff"],
-    ["STEER", Math.abs(telemetry.steer ?? 0) / 1.27, "#8b57ff"],
+    ["THROTTLE", telemetry.throttle, "#21e78a", 255],
+    ["BRAKE", telemetry.brake, "#ff3d4f", 100],
+    ["CLUTCH", telemetry.clutch, "#25c8ff", 100],
+    ["STEER", Math.abs(telemetry.steer ?? 0) / 1.27, "#8b57ff", 100],
   ];
   return (
     <div className="system-card input-card">
       <h3>INPUTS</h3>
-      {rows.map(([label, value, color]) => (
+      {rows.map(([label, value, color, max]) => (
         <p
           key={label}
-          style={{ "--value": `${clamp(value, 0, 100)}%`, "--bar": color }}
+          style={{
+            "--value": `${clamp((value / max) * 100, 0, 100)}%`,
+            "--bar": color,
+          }}
         >
           <span>{label}</span>
           <i />
