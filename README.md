@@ -42,6 +42,11 @@ If the dashboard does not react, make sure Forza and ForzaDash use the same UDP 
 - Local-only dashboard and telemetry services
 - Portable Windows build
 
+## Version 4 New Features
+
+- New navigation system with live map positioning and last-known location support
+- Improved dashboard UI polish for cleaner fullscreen use
+
 ## Music
 
 ForzaDash supports Spotify and YouTube Music from the music panel.
