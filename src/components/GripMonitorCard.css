@@ -78,9 +78,10 @@
 }
 
 .grip-ring-label strong {
-  color: #f8fbff;
+  color: var(--grip-color);
   font-size: clamp(34px, 3.2vw, 58px);
   line-height: 0.85;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--grip-color) 42%, transparent);
 }
 
 .grip-ring-label small {

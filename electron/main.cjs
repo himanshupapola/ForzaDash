@@ -583,6 +583,9 @@ function createDashboardWindow(dashboardUrl) {
       toggleDashboardFullscreen();
     }
   });
+  dashboardWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Dashboard renderer stopped", details);
+  });
   dashboardWindow.once("ready-to-show", () => {
     dashboardWindow.show();
     dashboardWindow.focus();

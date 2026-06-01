@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Car,
-  Heart,
   Minus,
   Pause,
   Play,
@@ -1458,7 +1457,7 @@ function App() {
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
-          <PowerTorquePanel telemetry={smoothTelemetry} />
+          <BoostPressurePanel telemetry={smoothTelemetry} />
           <MusicPanel onOpenSettings={openSettings} />
         </aside>
       </section>
@@ -2054,31 +2053,53 @@ const CenterDial = React.memo(function CenterDial({
   );
 });
 
-const PowerTorquePanel = React.memo(function PowerTorquePanel({ telemetry }) {
-  const power = Math.max(0, Math.round(telemetry.powerHp || 0));
-  const torque = Math.max(0, Math.round(telemetry.torqueNm || 0));
-  const powerRatio = clamp(power / 820, 0, 1);
-  const torqueRatio = clamp(torque / 720, 0, 1);
+const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry }) {
+  const rawBoostBar = Number(telemetry.boostBar);
+  const rawBoostPsi = Number(telemetry.boostPsi);
+  const boostBar = Number.isFinite(rawBoostBar)
+    ? rawBoostBar
+    : Number.isFinite(rawBoostPsi)
+      ? rawBoostPsi / 14.5038
+      : 0;
+  const boostPsi = Number.isFinite(rawBoostPsi) ? rawBoostPsi : boostBar * 14.5038;
+  const pressurePsi = Math.max(0, boostPsi);
+  const scaleMaxPsi = 30;
+  const boostRatio = clamp(pressurePsi / scaleMaxPsi, 0, 1);
+  const pressureLevel =
+    boostRatio < 0.33 ? "LOW" : boostRatio < 0.67 ? "MID" : "MAX";
+  const pressureLevelColor =
+    pressureLevel === "LOW"
+      ? "#25d97f"
+      : pressureLevel === "MID"
+        ? "#ffd43b"
+        : "#ff3150";
 
   return (
-    <section className="glass-panel right-power-panel" aria-label="Power and torque">
-      <h3>POWER & TORQUE</h3>
-      <div className="right-power-grid">
-        <div className="right-power-stat power">
-          <span>POWER</span>
-          <strong>
-            {power}
-            <small>HP</small>
-          </strong>
-          <i style={{ "--metric-fill": `${powerRatio * 100}%` }} />
+    <section
+      className="glass-panel right-power-panel boost-pressure-panel"
+      aria-label="Boost pressure"
+    >
+      <div className="right-power-title">
+        <h3>BOOST</h3>
+      </div>
+      <div
+        className="boost-pressure-body"
+        style={{
+          "--boost-fill": `${boostRatio * 100}%`,
+          "--boost-level-color": pressureLevelColor,
+        }}
+      >
+        <div className="boost-value-group">
+          <div className="boost-live-value">
+            <strong>{pressurePsi.toFixed(1)}</strong>
+            <small>PSI</small>
+          </div>
         </div>
-        <div className="right-power-stat torque">
-          <span>TORQUE</span>
-          <strong>
-            {torque}
-            <small>NM</small>
-          </strong>
-          <i style={{ "--metric-fill": `${torqueRatio * 100}%` }} />
+        <div className={`boost-pressure-level ${pressureLevel.toLowerCase()}`}>
+          <strong>{pressureLevel}</strong>
+        </div>
+        <div className="boost-pressure-meter" aria-hidden="true">
+          <i />
         </div>
       </div>
     </section>
@@ -2613,7 +2634,6 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           <span>{artist}</span>
           {!isYouTube && <em className="spotify-status">{providerStatus}</em>}
         </div>
-        <Heart className="heart" fill="currentColor" />
       </div>
       <div className="progress-wrap">
         <div
