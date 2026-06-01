@@ -45,6 +45,7 @@
   "dependencies": {
     "forza-horizon": "^1.0.9",
     "node-hid": "^3.3.0",
+    "react-circular-progress": "github:amit08255/circular-dashed-progress-react",
     "ws": "^8.21.0"
   },
   "devDependencies": {

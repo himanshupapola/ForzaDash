@@ -34,6 +34,11 @@ import {
   setSpotifyShuffle,
   spotifyCommand,
 } from "./spotify";
+import GripMonitorSection from "./components/GripMonitorCard";
+import InputBarsSection from "./components/InputBars";
+import NavigationSection from "./components/NavigationPanel";
+import TireSuspensionSection from "./components/TireSuspensionCard";
+import CircularProgressBar from "react-circular-progress";
 import "./styles.css";
 import speedometerBg from "../spm.png";
 import horizonMap from "../map.jpg";
@@ -174,6 +179,8 @@ function createDemoTelemetry(frame) {
   const throttle = clamp(46 + Math.sin(t * 1.1) * 36, 4, 100);
   const brake = clamp(Math.sin(t * 0.7 + 0.8) > 0.82 ? 22 : 0, 0, 100);
   const clutch = clamp(Math.sin(t * 0.45 + 1.7) * 8 + 6, 0, 32);
+  const handBrakePulse = Math.max(0, Math.sin(t * 0.52 + 2.4) - 0.62) / 0.38;
+  const handBrake = clamp(handBrakePulse ** 1.8 * 210, 0, 255);
   const boostBar = clamp(
     0.2 + throttle * 0.015 + Math.sin(t * 2.1) * 0.09,
     0,
@@ -185,6 +192,11 @@ function createDemoTelemetry(frame) {
     120,
     980,
   );
+  const gripDemo = (Math.sin(t * 0.72) + 1) / 2;
+  const demoGripIndex = clamp(10 + gripDemo * 90, 10, 100);
+  const demoSlip = clamp((100 - demoGripIndex) / 80, 0, 1.125);
+  const frontSlip = clamp(demoSlip * (0.82 + Math.abs(Math.sin(t * 0.9)) * 0.34), 0, 1.4);
+  const rearSlip = clamp(demoSlip * (0.72 + Math.abs(Math.cos(t * 0.78)) * 0.44), 0, 1.4);
 
   return {
     ...fallbackTelemetry,
@@ -199,10 +211,15 @@ function createDemoTelemetry(frame) {
     throttle,
     brake,
     clutch,
+    handBrake,
     steer: Math.round(Math.sin(t * 0.8) * 68),
     accelerationX: Math.sin(t * 1.22) * 3.3,
     accelerationY: Math.sin(t * 0.4) * 0.9,
     accelerationZ: Math.cos(t * 1.02) * 2.1,
+    tireCombinedSlipFrontLeft: frontSlip,
+    tireCombinedSlipFrontRight: frontSlip,
+    tireCombinedSlipRearLeft: rearSlip,
+    tireCombinedSlipRearRight: rearSlip,
     rawCount: frame,
     parsedCount: frame,
     lastSender: "DEMO",
@@ -442,6 +459,43 @@ function useSmoothedTelemetry(targetTelemetry) {
   }, []);
 
   return displayTelemetry;
+}
+
+function useSmoothedNumber(target, options = {}) {
+  const { responsiveness = 8, rateLimit = 9999, minStep = 0.01 } = options;
+  const valueRef = useRef(Number(target) || 0);
+  const timeRef = useRef(Date.now());
+  const [, forceFrame] = useState(0);
+
+  useEffect(() => {
+    let frameId = 0;
+
+    function tick() {
+      const now = Date.now();
+      const dt = clamp((now - timeRef.current) / 1000, 0.016, 0.08);
+      timeRef.current = now;
+      const current = valueRef.current;
+      const nextTarget = Number(target) || 0;
+      const alpha = 1 - Math.exp(-responsiveness * dt);
+      const delta = clamp(
+        (nextTarget - current) * alpha,
+        -rateLimit * dt,
+        rateLimit * dt,
+      );
+      const next = Math.abs(nextTarget - current) <= minStep ? nextTarget : current + delta;
+
+      if (Math.abs(next - current) > 0.001) {
+        valueRef.current = next;
+        forceFrame((frame) => frame + 1);
+        frameId = requestAnimationFrame(tick);
+      }
+    }
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [minStep, rateLimit, responsiveness, target]);
+
+  return valueRef.current;
 }
 
 function formatTireTemp(value) {
@@ -1335,7 +1389,11 @@ function App() {
       : "NO PACKETS";
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
   const speed = Math.round(
-    toDisplaySpeed(smoothTelemetry.speedKmh, settings.speedUnit),
+    useSmoothedNumber(toDisplaySpeed(smoothTelemetry.speedKmh, settings.speedUnit), {
+      responsiveness: 7.5,
+      rateLimit: settings.speedUnit === "mph" ? 90 : 145,
+      minStep: 0.08,
+    }),
   );
   const stableGearRef = useRef(1);
   stableGearRef.current = normalizeGear(telemetry.gear, stableGearRef.current);
@@ -1370,7 +1428,7 @@ function App() {
             gear={gear}
             speedUnit={settings.speedUnit}
           />
-          <LiveMapPanel telemetry={mapTelemetry} online={online} />
+          <NavigationSection telemetry={mapTelemetry} online={online} />
         </aside>
         <CenterDial
           telemetry={smoothTelemetry}
@@ -1381,7 +1439,6 @@ function App() {
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
-          <PowerStatsPanel telemetry={smoothTelemetry} />
           <MusicPanel onOpenSettings={openSettings} />
         </aside>
       </section>
@@ -1954,7 +2011,10 @@ const CenterDial = React.memo(function CenterDial({
               <strong>{gear}</strong>
               <span>GEAR</span>
             </div>
-            <div className="lower-rpm">
+            <div
+              className="lower-rpm"
+              style={{ "--rpm-ratio": liveRpmRatio }}
+            >
               <strong>{rpmReadout} RPM</strong>
             </div>
           </div>
@@ -2885,18 +2945,13 @@ const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
 
   return (
     <section className="bottom-area" aria-label="Dashboard widgets">
-      <TireSuspensionCard
+      <TireSuspensionSection
         tireTemps={tireTemps}
         suspensionTravel={suspensionTravel}
         imageSrc={tiresSuspensionImage}
       />
-      <InputBars telemetry={telemetry} />
-      <TireSuspensionCard
-        className="tire-suspension-card-right"
-        tireTemps={tireTemps}
-        suspensionTravel={suspensionTravel}
-        imageSrc={tiresSuspensionImage}
-      />
+      <InputBarsSection telemetry={telemetry} />
+      <GripMonitorSection telemetry={telemetry} />
     </section>
   );
 });
@@ -2946,6 +3001,66 @@ function TireSuspensionCard({
         <div className="systems-car-slot">
           <img className="systems-car-image" src={imageSrc} alt="" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function GripMonitorCard({ telemetry }) {
+  const fallbackSlip = (() => {
+    const throttle = clamp((telemetry.throttle || 0) / 255, 0, 1);
+    const brake = clamp((telemetry.brake || 0) / 255, 0, 1);
+    const steer = clamp(Math.abs(telemetry.steer || 0) / 127, 0, 1);
+    return [
+      brake * 0.55 + steer * 0.28,
+      brake * 0.55 + steer * 0.28,
+      throttle * 0.48 + steer * 0.22,
+      throttle * 0.48 + steer * 0.22,
+    ];
+  })();
+  const slipValues = [
+    getTelemetryValue(telemetry, ["TireCombinedSlipFrontLeft", "tireCombinedSlipFrontLeft", "slipFL"], fallbackSlip[0]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipFrontRight", "tireCombinedSlipFrontRight", "slipFR"], fallbackSlip[1]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipRearLeft", "tireCombinedSlipRearLeft", "slipRL"], fallbackSlip[2]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipRearRight", "tireCombinedSlipRearRight", "slipRR"], fallbackSlip[3]),
+  ].map((value) => Math.max(0, Number(value) || 0));
+  const frontSlipPct = clamp(Math.round(((slipValues[0] + slipValues[1]) / 2) * 100), 0, 100);
+  const rearSlipPct = clamp(Math.round(((slipValues[2] + slipValues[3]) / 2) * 100), 0, 100);
+  const maxSlip = Math.max(...slipValues);
+  const wheelspinPct = maxSlip > 1 ? clamp(Math.round(((maxSlip - 1) / 1.5) * 100), 0, 100) : 0;
+  const avgSlip = slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
+  const gripIndex = clamp(Math.round(100 - avgSlip * 80), 0, 100);
+  const status = gripIndex < 40 ? "NO CONTROL" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
+  const statusClass = gripIndex < 40 ? "danger" : gripIndex < 85 ? "warn" : "good";
+  const rows = [
+    ["FRONT SLIP", frontSlipPct],
+    ["REAR SLIP", rearSlipPct],
+    ["WHEELSPIN", wheelspinPct],
+  ];
+
+  return (
+    <div className="glass-panel system-card grip-monitor-card">
+      <div className="grip-monitor-body">
+        <div
+          className={`grip-index ${statusClass}`}
+          style={{ "--grip-value": gripIndex }}
+        >
+          <GripRing value={gripIndex} />
+        </div>
+        <div className="grip-slip-list">
+          {rows.map(([label, value]) => (
+            <div className="grip-slip-row" key={label} style={{ "--slip": `${value}%` }}>
+              <span>{label}</span>
+              <i><em /></i>
+              <strong>{value}%</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className={`grip-status ${statusClass}`}>
+        <span>STATUS</span>
+        <strong>{status}</strong>
+        <em>{status === "PERFECT" ? "OPTIMAL TRACTION" : "TRACTION ACTIVE"}</em>
       </div>
     </div>
   );
@@ -3116,12 +3231,7 @@ const InputBars = React.memo(function InputBars({ telemetry }) {
   ];
   const steer = clamp(telemetry.steer ?? 0, -127, 127);
   const steerPercent = Math.abs(steer / 127) * 100;
-  const steerLabel =
-    steer > 0
-      ? `${number(steerPercent)}%`
-      : steer < 0
-        ? `${number(steerPercent)}%`
-        : "CENTER";
+  const steerLabel = `${number(steerPercent)}%`;
   return (
     <div className="glass-panel system-card input-card">
       <h3>INPUTS</h3>

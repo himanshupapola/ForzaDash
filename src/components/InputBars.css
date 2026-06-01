@@ -1,0 +1,233 @@
+.bottom-area > .input-card {
+  position: relative;
+  width: 100%;
+  height: 86%;
+  min-height: 0;
+  align-self: end;
+}
+
+.system-card.input-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  justify-items: stretch;
+  gap: clamp(8px, 1vh, 12px);
+  padding: clamp(12px, 1.2vh, 18px) clamp(14px, 1.2vw, 22px);
+  overflow: hidden;
+}
+
+.input-list {
+  display: grid;
+  gap: clamp(5px, 0.7vh, 9px);
+  min-height: 0;
+}
+
+.input-row {
+  --bar: #25eaff;
+  min-height: 26px;
+  display: grid;
+  grid-template-columns: minmax(82px, 0.42fr) minmax(
+      0,
+      1fr
+    ) clamp(44px, 4vw, 62px);
+  align-items: center;
+  gap: clamp(8px, 0.8vw, 13px);
+  padding: 3px clamp(6px, 0.6vw, 10px);
+  border: 1px solid rgba(118, 154, 174, 0.08);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--bar) 10%, transparent),
+      transparent 42%
+    ),
+    rgba(0, 8, 12, 0.24);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 50%,
+    calc(100% - 12px) 100%,
+    0 100%
+  );
+}
+
+.input-name {
+  display: grid;
+  gap: 3px;
+}
+
+.input-name span {
+  color: var(--bar);
+  font-size: clamp(10px, 0.72vw, 13px);
+  font-family: Rajdhani, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--bar) 35%, transparent);
+}
+
+.input-name em {
+  display: block;
+  width: 55%;
+  height: 1px;
+  background: var(--bar);
+  box-shadow: 0 0 8px var(--bar);
+}
+
+.input-segments {
+  height: 16px;
+  position: relative;
+  border: 1px solid rgba(107, 139, 156, 0.12);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(95, 119, 132, 0.22) 0 7px,
+      transparent 7px 12px
+    ),
+    rgba(0, 0, 0, 0.24);
+  transform: skewX(-14deg);
+  overflow: hidden;
+  border-radius: 0;
+}
+
+.input-segments i {
+  display: block;
+  width: var(--value);
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--bar) 0 7px,
+    transparent 7px 12px
+  );
+  box-shadow:
+    0 0 5px color-mix(in srgb, var(--bar) 45%, transparent),
+    inset 0 0 6px rgba(255, 255, 255, 0.12);
+  transition: width 160ms ease-out;
+}
+
+.input-row strong {
+  color: var(--bar);
+  font-family: Rajdhani, sans-serif;
+  font-size: clamp(17px, 1.4vw, 25px);
+  font-weight: 900;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--bar) 35%, transparent);
+}
+
+.steer-track {
+  position: relative;
+  height: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+.steer-track i {
+  position: relative;
+  height: 14px;
+  border: 1px solid rgba(155, 92, 255, 0.22);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(95, 119, 132, 0.24) 0 100%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      #000 0 6px,
+      transparent 6px 10px
+    );
+  box-shadow: inset 0 0 10px rgba(155, 92, 255, 0.08);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 10px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 10px);
+}
+
+.steer-track i::before {
+  content: "";
+  position: absolute;
+  left: var(--steer-start);
+  top: 0;
+  bottom: 0;
+  width: var(--steer-fill);
+  background: #9b5cff;
+  box-shadow: 0 0 12px rgba(155, 92, 255, 0.58);
+}
+
+.steer-track i b {
+  display: none;
+}
+
+.steer-track i::after {
+  content: "";
+  position: absolute;
+  left: var(--steer);
+  top: 50%;
+  width: 8px;
+  height: 22px;
+  border-radius: 999px;
+  background: #d9d1ff;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 0 3px rgba(155, 92, 255, 0.18),
+    0 0 16px rgba(155, 92, 255, 0.65);
+}
+
+.steer-arrow {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .bottom-area > .input-card {
+    height: auto;
+  }
+
+  .input-row {
+    grid-template-columns: 92px minmax(0, 1fr) 52px;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 821px) {
+  .system-card.input-card {
+    height: var(--hud-bottom-row);
+    min-height: var(--hud-bottom-row);
+    gap: 5px;
+    padding: 10px 14px;
+  }
+
+  .input-list {
+    gap: 4px;
+  }
+
+  .input-row {
+    min-height: 22px;
+    grid-template-columns: 78px minmax(0, 1fr) 42px;
+    gap: 7px;
+    padding: 2px 6px;
+  }
+
+  .input-name span {
+    font-size: 9px;
+  }
+
+  .input-segments {
+    height: 13px;
+    gap: 4px;
+  }
+
+  .input-row strong {
+    font-size: 16px;
+  }
+
+  .steer-track {
+    height: 16px;
+  }
+
+  .steer-track i {
+    height: 11px;
+  }
+
+  .steer-track i::after {
+    height: 18px;
+    width: 6px;
+  }
+}
