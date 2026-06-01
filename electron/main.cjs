@@ -176,6 +176,8 @@ function contentType(filePath) {
       ".css": "text/css; charset=utf-8",
       ".html": "text/html; charset=utf-8",
       ".ico": "image/x-icon",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
       ".js": "text/javascript; charset=utf-8",
       ".json": "application/json; charset=utf-8",
       ".png": "image/png",
@@ -183,6 +185,17 @@ function contentType(filePath) {
       ".webp": "image/webp",
     }[ext] || "application/octet-stream"
   );
+}
+
+function cacheHeaders(filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  const isBuiltAsset = normalized.includes("/dist/app/assets/");
+  return {
+    "Content-Type": contentType(filePath),
+    "Cache-Control": isBuiltAsset
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
+  };
 }
 
 function sendFile(response, filePath) {
@@ -193,17 +206,17 @@ function sendFile(response, filePath) {
       return;
     }
 
-    response.writeHead(200, { "Content-Type": contentType(filePath) });
+    response.writeHead(200, cacheHeaders(filePath));
     response.end(data);
   });
 }
 
 function startDashboardServer() {
   const dashboardRoot = path.join(__dirname, "..", "dist", "app");
-  const port = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
+  const preferredPort = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
 
   webServer = http.createServer((request, response) => {
-    const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+    const url = new URL(request.url || "/", `http://127.0.0.1:${preferredPort}`);
 
     if (url.pathname === "/api/settings" && request.method === "GET") {
       response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
@@ -431,12 +444,35 @@ function startDashboardServer() {
   });
 
   return new Promise((resolve, reject) => {
-    webServer.once("error", reject);
-    webServer.listen(port, LOCAL_HOST, () => {
-      webServer.off("error", reject);
-      resolve(`http://127.0.0.1:${port}/`);
-      console.log(`Dashboard listening on http://127.0.0.1:${port}/`);
-    });
+    let port = preferredPort;
+    const maxPort = preferredPort + 20;
+
+    function listen() {
+      webServer.once("error", onError);
+      webServer.listen(port, LOCAL_HOST, () => {
+        webServer.off("error", onError);
+        if (port !== preferredPort) {
+          console.warn(
+            `Dashboard port ${preferredPort} was busy, using ${port} instead.`,
+          );
+        }
+        resolve(`http://127.0.0.1:${port}/`);
+        console.log(`Dashboard listening on http://127.0.0.1:${port}/`);
+      });
+    }
+
+    function onError(error) {
+      webServer.off("error", onError);
+      if (error?.code === "EADDRINUSE" && port < maxPort) {
+        console.warn(`Dashboard port ${port} is busy, trying ${port + 1}...`);
+        port += 1;
+        listen();
+        return;
+      }
+      reject(error);
+    }
+
+    listen();
   });
 }
 
@@ -473,6 +509,7 @@ function createDashboardWindow(dashboardUrl) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 

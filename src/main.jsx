@@ -2733,6 +2733,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
   const settings = useSettings();
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   const spotifyConfigured = Boolean(draft.spotifyClientId?.trim());
   const spotifyLoggedIn = hasSpotifyLogin();
 
@@ -2742,10 +2743,79 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
 
   function updateField(key, value) {
     setSaved(false);
+    setSettingsError("");
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  function portValue(value) {
+    const port = Number(String(value || "").trim());
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+  }
+
+  function validatePorts() {
+    const udpPort = portValue(draft.forzaUdpPort || DEFAULT_SETTINGS.forzaUdpPort);
+    const telemetryPort = portValue(
+      draft.telemetryWsPort || DEFAULT_SETTINGS.telemetryWsPort,
+    );
+    const dashboardPort = portValue(
+      draft.dashboardPort || DEFAULT_SETTINGS.dashboardPort,
+    );
+    const forwardPort1 = portValue(
+      draft.forzaUdpForwardPort || DEFAULT_SETTINGS.forzaUdpForwardPort,
+    );
+    const forwardPort2 = portValue(
+      draft.forzaUdpForwardPort2 || DEFAULT_SETTINGS.forzaUdpForwardPort2,
+    );
+
+    if (!udpPort || !telemetryPort || !dashboardPort) {
+      return "Ports must be numbers between 1 and 65535.";
+    }
+
+    if (dashboardPort === telemetryPort) {
+      return "Dashboard port and Telemetry WS port must be different.";
+    }
+
+    if (dashboardPort === udpPort) {
+      return "Dashboard port and Forza UDP port must be different.";
+    }
+
+    if (telemetryPort === udpPort) {
+      return "Telemetry WS port and Forza UDP port must be different.";
+    }
+
+    if (!draft.udpForwardingEnabled) return "";
+
+    if (!forwardPort1 || !forwardPort2) {
+      return "UDP forward ports must be numbers between 1 and 65535.";
+    }
+
+    if (forwardPort1 === forwardPort2) {
+      return "UDP forward ports must be different.";
+    }
+
+    if (forwardPort1 === udpPort || forwardPort2 === udpPort) {
+      return "UDP forward ports cannot match the Forza UDP input port.";
+    }
+
+    if (forwardPort1 === dashboardPort || forwardPort2 === dashboardPort) {
+      return "UDP forward ports cannot match the Dashboard port.";
+    }
+
+    if (forwardPort1 === telemetryPort || forwardPort2 === telemetryPort) {
+      return "UDP forward ports cannot match the Telemetry WS port.";
+    }
+
+    return "";
+  }
+
   function save() {
+    const portError = validatePorts();
+    if (portError) {
+      setSettingsError(portError);
+      setSaved(false);
+      return;
+    }
+
     saveSettings({
       ...DEFAULT_SETTINGS,
       ...draft,
@@ -2932,6 +3002,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
             <i aria-hidden="true" />
           </label>
         </div>
+        {settingsError && <p className="settings-error">{settingsError}</p>}
         <p className="settings-note">
           {saved
             ? "Saved. Port changes apply after restarting the local server/app."

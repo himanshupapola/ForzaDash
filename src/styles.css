@@ -2126,7 +2126,8 @@ h3 {
 }
 
 .settings-grid label span,
-.settings-note {
+.settings-note,
+.settings-error {
   color: #8e99a3;
   font-size: 13px;
 }
@@ -2263,6 +2264,15 @@ h3 {
 
 .settings-note {
   margin: 0 0 16px;
+}
+
+.settings-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 61, 79, 0.28);
+  border-radius: 6px;
+  color: #ffd6dc;
+  background: rgba(255, 61, 79, 0.09);
 }
 
 

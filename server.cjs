@@ -57,6 +57,68 @@ const UDP_FORWARD_PORTS = UDP_FORWARDING_ENABLED
   : [];
 // The dashboard app connects to this WebSocket for parsed telemetry
 const WS_PORT = envPort("VITE_TELEMETRY_WS_PORT", 17878);
+const DASHBOARD_PORT = envPort("VITE_DASHBOARD_PORT", 5173);
+
+function describePortUse(name, port) {
+  return `${name} ${LOCAL_HOST}:${port}`;
+}
+
+function exitWithPortError(message) {
+  console.error(`\nForzaDash port error: ${message}`);
+  console.error("Update the port in Settings, then restart ForzaDash.\n");
+  process.exit(1);
+}
+
+function validatePortSettings() {
+  if (DASHBOARD_PORT === WS_PORT) {
+    exitWithPortError(
+      `Dashboard port and Telemetry WebSocket port both use ${DASHBOARD_PORT}.`,
+    );
+  }
+
+  if (DASHBOARD_PORT === UDP_PORT) {
+    exitWithPortError(
+      `Dashboard port and Forza UDP input port both use ${DASHBOARD_PORT}.`,
+    );
+  }
+
+  if (WS_PORT === UDP_PORT) {
+    exitWithPortError(
+      `Telemetry WebSocket port and Forza UDP input port both use ${WS_PORT}.`,
+    );
+  }
+
+  if (!UDP_FORWARDING_ENABLED) return;
+
+  const uniqueForwardPorts = new Set(UDP_FORWARD_PORTS);
+  if (uniqueForwardPorts.size !== UDP_FORWARD_PORTS.length) {
+    exitWithPortError(
+      `UDP forward ports must be different. Both are set to ${UDP_FORWARD_PORT}.`,
+    );
+  }
+
+  for (const forwardPort of UDP_FORWARD_PORTS) {
+    if (forwardPort === UDP_PORT) {
+      exitWithPortError(
+        `UDP forward port ${forwardPort} matches the Forza UDP input port. This would forward packets back into ForzaDash.`,
+      );
+    }
+
+    if (forwardPort === DASHBOARD_PORT) {
+      exitWithPortError(
+        `UDP forward port ${forwardPort} matches the Dashboard port.`,
+      );
+    }
+
+    if (forwardPort === WS_PORT) {
+      exitWithPortError(
+        `UDP forward port ${forwardPort} matches the Telemetry WebSocket port.`,
+      );
+    }
+  }
+}
+
+validatePortSettings();
 
 let rawCount = 0;
 let parsedCount = 0;
@@ -495,6 +557,23 @@ const udpForwardSocket = UDP_FORWARDING_ENABLED
   ? dgram.createSocket("udp4")
   : null;
 
+function handleListenError(serviceName, port, error) {
+  if (error?.code === "EADDRINUSE") {
+    exitWithPortError(
+      `${describePortUse(serviceName, port)} is already in use by another app.`,
+    );
+  }
+
+  if (error?.code === "EACCES") {
+    exitWithPortError(
+      `${describePortUse(serviceName, port)} cannot be opened because permission was denied.`,
+    );
+  }
+
+  console.error(`${serviceName} failed on ${LOCAL_HOST}:${port}`, error);
+  process.exit(1);
+}
+
 function broadcast(payload) {
   const message = JSON.stringify(payload);
   for (const client of wss.clients) {
@@ -532,6 +611,14 @@ udp.on("message", (message, remote) => {
   updateG29Leds(latestTelemetry);
   broadcast(latestTelemetry);
 });
+
+telemetryServer.on("error", (error) =>
+  handleListenError("Telemetry WebSocket port", WS_PORT, error),
+);
+
+udp.on("error", (error) =>
+  handleListenError("Forza UDP input port", UDP_PORT, error),
+);
 
 telemetryServer.listen(WS_PORT, LOCAL_HOST, () => {
   console.log(`Telemetry WebSocket listening on ws://127.0.0.1:${WS_PORT}`);
