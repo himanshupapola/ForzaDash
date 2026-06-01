@@ -1,6 +1,6 @@
 {
   "name": "forzadash",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "private": true,
   "author": "Himanshu",
   "type": "module",
@@ -27,12 +27,12 @@
       "electron/**/*",
       "scripts/**/*",
       "server.cjs",
-      "forza-logo.png",
+      "src/assets/forza-logo.png",
       "package.json"
     ],
     "afterPack": "scripts/afterPack.cjs",
     "win": {
-      "icon": "forza-logo.png",
+      "icon": "src/assets/forza-logo.png",
       "signAndEditExecutable": false,
       "target": [
         "portable"

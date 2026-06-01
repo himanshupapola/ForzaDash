@@ -18,7 +18,7 @@ import {
   Youtube,
 } from "lucide-react";
 import forzaLogo from "./assets/forza-logo.png";
-import carTopView from "./assets/car.png";
+import carTopView from "./assets/car-small.png";
 import tiresSuspensionImage from "./assets/Tiers and Suspension.png";
 import spotifyLogo from "./assets/spotify.png";
 import {
@@ -49,8 +49,7 @@ import {
   YAxis,
 } from "recharts";
 import "./styles.css";
-import speedometerBg from "../spm.png";
-import horizonMap from "./assets/map-nav.jpg";
+import speedometerBg from "./assets/speedometer-bg.jpg";
 
 const fallbackTelemetry = {
   status: "WAITING",
@@ -75,7 +74,6 @@ const fallbackTelemetry = {
 };
 
 const SETTINGS_KEY = "forzadash_settings";
-const MAP_STATE_KEY = "forzadash_last_map_state";
 const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
 const YOUTUBE_VOLUME_KEY = "forzadash_youtube_volume";
 const YOUTUBE_MUTED_KEY = "forzadash_youtube_muted";
@@ -83,6 +81,7 @@ const DEFAULT_SETTINGS = {
   weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
   forzaUdpPort: import.meta.env.VITE_FORZA_UDP_PORT || "1234",
+  udpForwardingEnabled: import.meta.env.VITE_UDP_FORWARDING_ENABLED === "true",
   forzaUdpForwardPort: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT || "1235",
   forzaUdpForwardPort2: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT_2 || "1236",
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
@@ -93,20 +92,6 @@ const DEFAULT_SETTINGS = {
   flashMode: false,
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
-const FH6_MAP_IMAGE_SIZE = 6144;
-const FH6_MAP_FACTOR_X = -3.5131;
-const FH6_MAP_OFFSET_X = -172.55;
-const FH6_MAP_FACTOR_Y = 3.512;
-const FH6_MAP_OFFSET_Y = 12.86;
-const GPS_MAP_ZOOM = 1.82;
-const GPS_MAP_CENTER_OFFSET_X = 0;
-const GPS_MAP_CENTER_OFFSET_Y = 0;
-const GPS_MAP_STYLE = {
-  background: "#02080c",
-  road: "#edf7fb",
-  roadGlow: "#25c8ff",
-};
-
 function toDisplaySpeed(speedKmh, speedUnit) {
   const kmh = Number(speedKmh) || 0;
   return speedUnit === "mph" ? kmh * 0.621371 : kmh;
@@ -114,63 +99,6 @@ function toDisplaySpeed(speedKmh, speedUnit) {
 
 function speedUnitLabel(speedUnit) {
   return speedUnit === "mph" ? "MPH" : "KM/H";
-}
-
-function worldToMapPoint(telemetry) {
-  const worldX = Number(telemetry.positionX);
-  const worldY = Number(telemetry.positionZ);
-  if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return null;
-  if (telemetry.status !== "DEMO" && Number(telemetry.isRaceOn) === 0) {
-    return null;
-  }
-  if (
-    telemetry.status !== "DEMO" &&
-    Math.abs(worldX) < 0.001 &&
-    Math.abs(worldY) < 0.001
-  ) {
-    return null;
-  }
-
-  return {
-    x: FH6_MAP_IMAGE_SIZE / 2 - (worldX / FH6_MAP_FACTOR_X + FH6_MAP_OFFSET_X),
-    y: FH6_MAP_IMAGE_SIZE / 2 - (worldY / FH6_MAP_FACTOR_Y + FH6_MAP_OFFSET_Y),
-  };
-}
-
-function readStoredMapState() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(MAP_STATE_KEY) || "null");
-    const point = stored?.point;
-    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-      return null;
-    }
-    return {
-      point: {
-        x: clamp(point.x, 0, FH6_MAP_IMAGE_SIZE),
-        y: clamp(point.y, 0, FH6_MAP_IMAGE_SIZE),
-      },
-      yaw: Number.isFinite(stored.yaw) ? stored.yaw : 0,
-      speed: Number.isFinite(stored.speed) ? stored.speed : 0,
-      hasPosition: true,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function storeMapState(mapState) {
-  try {
-    localStorage.setItem(
-      MAP_STATE_KEY,
-      JSON.stringify({
-        point: mapState.point,
-        yaw: mapState.yaw,
-        speed: mapState.speed,
-      }),
-    );
-  } catch {
-    // Best effort only; minimap should still work if storage is unavailable.
-  }
 }
 
 function createDemoTelemetry(frame) {
@@ -215,10 +143,23 @@ function createDemoTelemetry(frame) {
   const demoSlip = clamp((100 - demoGripIndex) / 80, 0, 1.125);
   const frontSlip = clamp(demoSlip * (0.82 + Math.abs(Math.sin(t * 0.9)) * 0.34), 0, 1.4);
   const rearSlip = clamp(demoSlip * (0.72 + Math.abs(Math.cos(t * 0.78)) * 0.44), 0, 1.4);
+  const demoRaceTime = frame * 0.12;
+  const demoLapLength = 86;
+  const demoLapProgress = (demoRaceTime % demoLapLength) / demoLapLength;
+  const demoLapNumber = Math.floor(demoRaceTime / demoLapLength) + 1;
+  const demoCurrentLap = demoRaceTime % demoLapLength;
+  const demoLastLap = 84.6 + Math.sin(demoLapNumber * 0.7) * 1.8;
+  const demoBestLap = Math.min(82.715, demoLastLap - 0.9);
+  const demoRacePosition = clamp(
+    6 - Math.floor(demoRaceTime / 35) + Math.round(Math.sin(t * 0.16)),
+    1,
+    12,
+  );
 
   return {
     ...fallbackTelemetry,
     status: "DEMO",
+    isRaceOn: 1,
     speedKmh,
     rpm,
     maxRpm,
@@ -238,6 +179,13 @@ function createDemoTelemetry(frame) {
     tireCombinedSlipFrontRight: frontSlip,
     tireCombinedSlipRearLeft: rearSlip,
     tireCombinedSlipRearRight: rearSlip,
+    racePosition: demoRacePosition,
+    lapNumber: demoLapNumber,
+    currentRaceTime: demoRaceTime,
+    currentLap: demoCurrentLap,
+    lastLap: demoLapNumber > 1 ? demoLastLap : 0,
+    bestLap: demoLapNumber > 1 ? demoBestLap : 0,
+    distanceTraveled: demoLapProgress * 5200 + (demoLapNumber - 1) * 5200,
     rawCount: frame,
     parsedCount: frame,
     lastSender: "DEMO",
@@ -1006,10 +954,6 @@ function formatDrivetrain(value) {
   return drivetrains[Math.round(numeric)] || String(Math.round(numeric));
 }
 
-function validTemperature(value) {
-  return Number.isFinite(value) && value > -40 && value < 150;
-}
-
 function RainCloudIcon({ size = 42, className = "" }) {
   return (
     <svg
@@ -1198,46 +1142,6 @@ function useClock() {
   };
 }
 
-function useHardwareTemperature() {
-  const settings = useSettings();
-  const [hardwareTemperature, setHardwareTemperature] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadHardwareTemperature() {
-      try {
-        const telemetryPort =
-          settings.telemetryWsPort || DEFAULT_SETTINGS.telemetryWsPort;
-        const response = await fetch(
-          `${getTelemetryHttpBase(telemetryPort)}/api/hardware-temp`,
-        );
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) {
-          throw new Error(`Expected JSON, got ${contentType || "unknown"}`);
-        }
-        const data = await response.json();
-        if (!cancelled) {
-          setHardwareTemperature(
-            Number.isFinite(data?.temperature) ? data : null,
-          );
-        }
-      } catch {
-        if (!cancelled) setHardwareTemperature(null);
-      }
-    }
-
-    loadHardwareTemperature();
-    const interval = window.setInterval(loadHardwareTemperature, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [settings.telemetryWsPort]);
-
-  return hardwareTemperature;
-}
-
 function useWeather(settings) {
   const weatherRegion =
     settings.weatherRegion || DEFAULT_SETTINGS.weatherRegion;
@@ -1382,7 +1286,6 @@ function App() {
   const smoothTelemetry = useSmoothedTelemetry(telemetry);
   const weather = useWeather(settings);
   const updateInfo = useUpdateInfo();
-  const hardwareTemperature = useHardwareTemperature();
   const clock = useClock();
   const demoFrameRef = useRef(0);
   const lastLiveTelemetryRef = useRef(null);
@@ -1390,6 +1293,14 @@ function App() {
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   useEffect(() => {
+    function toggleBrowserFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    }
+
     function toggleFullscreen(event) {
       if (
         event.button !== 0 ||
@@ -1400,13 +1311,17 @@ function App() {
         return;
       }
 
-      fetch("/api/window/toggle-fullscreen").catch(() => {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen?.().catch(() => {});
-        } else {
-          document.exitFullscreen?.().catch(() => {});
-        }
-      });
+      const isElectronWindow = /\bElectron\b/i.test(navigator.userAgent);
+      if (!isElectronWindow) {
+        toggleBrowserFullscreen();
+        return;
+      }
+
+      fetch("/api/window/toggle-fullscreen")
+        .then((response) => {
+          if (!response.ok) throw new Error("Window fullscreen API unavailable");
+        })
+        .catch(toggleBrowserFullscreen);
     }
 
     window.addEventListener("dblclick", toggleFullscreen);
@@ -1531,7 +1446,6 @@ function App() {
           gear={gear}
           speedUnit={settings.speedUnit}
           rpmRatio={rpmRatio}
-          hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
           <MusicPanel
@@ -1621,122 +1535,6 @@ const TopBar = React.memo(function TopBar({
         </div>
       </div>
     </header>
-  );
-});
-
-const LiveMapPanel = React.memo(function LiveMapPanel({ telemetry, online }) {
-  const driveStatsRef = useRef({
-    lastAt: Date.now(),
-    minutes: 0,
-    distanceKm: 0,
-  });
-  const lastMapStateRef = useRef(
-    readStoredMapState() || {
-      point: null,
-      yaw: 0,
-      speed: 0,
-      hasPosition: false,
-    },
-  );
-  const point = worldToMapPoint(telemetry);
-  const liveYaw = Number(telemetry.yaw);
-  const liveSpeed = Math.round(Number(telemetry.speedKmh) || 0);
-  const liveHasPosition = Boolean(point);
-
-  if (liveHasPosition) {
-    lastMapStateRef.current = {
-      point,
-      yaw: Number.isFinite(liveYaw) ? liveYaw : lastMapStateRef.current.yaw,
-      speed: liveSpeed,
-      hasPosition: true,
-    };
-    storeMapState(lastMapStateRef.current);
-  }
-
-  const mapState = lastMapStateRef.current;
-  const yaw = mapState.yaw;
-  const speed = mapState.hasPosition ? mapState.speed : liveSpeed;
-  const hasPosition = mapState.hasPosition;
-  const mapPoint = mapState.point;
-  const mapX = mapPoint
-    ? clamp(mapPoint.x, 0, FH6_MAP_IMAGE_SIZE)
-    : FH6_MAP_IMAGE_SIZE / 2;
-  const mapY = mapPoint
-    ? clamp(mapPoint.y, 0, FH6_MAP_IMAGE_SIZE)
-    : FH6_MAP_IMAGE_SIZE / 2;
-  const centeredMapX = clamp(
-    mapX + GPS_MAP_CENTER_OFFSET_X,
-    0,
-    FH6_MAP_IMAGE_SIZE,
-  );
-  const centeredMapY = clamp(
-    mapY + GPS_MAP_CENTER_OFFSET_Y,
-    0,
-    FH6_MAP_IMAGE_SIZE,
-  );
-  const mapRotation = Number.isFinite(yaw) ? -yaw : 0;
-  const headingDeg = Number.isFinite(yaw) ? yaw * (180 / Math.PI) : 0;
-  const now = Date.now();
-  const elapsedSeconds = clamp(
-    (now - driveStatsRef.current.lastAt) / 1000,
-    0,
-    2,
-  );
-  driveStatsRef.current.lastAt = now;
-  if (online && hasPosition && speed > 1) {
-    driveStatsRef.current.minutes += elapsedSeconds / 60;
-    driveStatsRef.current.distanceKm += (speed / 3600) * elapsedSeconds;
-  }
-  const driveMinutes = Math.floor(driveStatsRef.current.minutes);
-  const drivenKm = driveStatsRef.current.distanceKm.toFixed(1);
-
-  return (
-    <section className="glass-panel live-map-panel">
-      <div
-        className="live-map"
-        style={{
-          "--gps-bg": GPS_MAP_STYLE.background,
-          "--gps-road": GPS_MAP_STYLE.road,
-          "--gps-road-glow": GPS_MAP_STYLE.roadGlow,
-        }}
-      >
-        <div className="minimap-title">
-          <strong>NAVIGATION</strong>
-        </div>
-        <div
-          className="live-map-world"
-          style={{
-            transform: `rotate(${mapRotation}rad) scale(${GPS_MAP_ZOOM})`,
-            "--map-x": `${centeredMapX}px`,
-            "--map-y": `${centeredMapY}px`,
-          }}
-        >
-          <img
-            src={horizonMap}
-            alt=""
-            style={{
-              transform: `translate(-${centeredMapX}px, -${centeredMapY}px)`,
-            }}
-          />
-        </div>
-        <div
-          className={`live-map-marker ${online && hasPosition ? "active" : ""}`}
-          style={{ transform: "translate(-50%, -50%)" }}
-          aria-hidden="true"
-        >
-          <svg viewBox="0 0 24 24">
-            <path d="M11.7 1.6 21.9 22.1 12.1 17.4 3 22.3 11.7 1.6Z" />
-          </svg>
-        </div>
-        <div className="live-map-vignette" />
-        <div className="navigation-stats">
-          <span>
-            <Timer size={16} /> {driveMinutes} min
-          </span>
-          <span>{drivenKm} km</span>
-        </div>
-      </div>
-    </section>
   );
 });
 
@@ -1890,7 +1688,6 @@ const CenterDial = React.memo(function CenterDial({
   telemetry,
   speed,
   gear,
-  hardwareTemperature,
   speedUnit,
 }) {
   const reverseGear = gear === "R";
@@ -2019,43 +1816,6 @@ const CenterDial = React.memo(function CenterDial({
   lastGForceRef.current.at = gNow;
   lastGForceRef.current.speedKmh = telemetry.speedKmh || 0;
   const driftAngle = calculateDriftAngle(telemetry);
-  const realTempValue = getTelemetryValue(
-    telemetry,
-    ["engineTemp", "coolantTemp", "temp", "temperature"],
-    null,
-  );
-  const derivedTempTarget = clamp(
-    82 +
-      clamp(telemetry.throttle || 0, 0, 100) * 0.14 +
-      liveRpmRatio * 18 +
-      clamp(telemetry.boostBar || 0, 0, 2) * 2 -
-      clamp(telemetry.speedKmh || 0, 0, 260) * 0.025,
-    78,
-    118,
-  );
-  const hardwareTempValue = Number(hardwareTemperature?.temperature);
-  const tempTarget = validTemperature(hardwareTempValue)
-    ? hardwareTempValue
-    : validTemperature(realTempValue)
-      ? realTempValue
-      : derivedTempTarget;
-  const tempSource = validTemperature(hardwareTempValue)
-    ? hardwareTemperature.source || "hardware"
-    : validTemperature(realTempValue)
-      ? "telemetry"
-      : "fallback";
-  const tempRef = useRef(tempTarget);
-  const tempTimeRef = useRef(Date.now());
-  const tempElapsed = clamp((Date.now() - tempTimeRef.current) / 1000, 0, 1);
-  tempTimeRef.current = Date.now();
-  if (!validTemperature(tempRef.current)) {
-    tempRef.current = tempTarget;
-  }
-  tempRef.current =
-    tempRef.current +
-    clamp(tempTarget - tempRef.current, -3 * tempElapsed, 3 * tempElapsed);
-  const tempValue = Math.round(tempRef.current);
-  const tempRatio = clamp(tempValue / 140, 0, 1);
   const rpmReadout = Math.max(0, Math.round(telemetry.rpm || 0))
     .toString()
     .padStart(4, "0");
@@ -2924,6 +2684,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
       dashboardPort:
         draft.dashboardPort.trim() || DEFAULT_SETTINGS.dashboardPort,
       forzaUdpPort: draft.forzaUdpPort.trim() || DEFAULT_SETTINGS.forzaUdpPort,
+      udpForwardingEnabled: Boolean(draft.udpForwardingEnabled),
       forzaUdpForwardPort:
         draft.forzaUdpForwardPort.trim() ||
         DEFAULT_SETTINGS.forzaUdpForwardPort,
@@ -3006,9 +2767,20 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
             />
           </label>
           <label>
+            <span>UDP Forwarding</span>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.udpForwardingEnabled)}
+              onChange={(event) =>
+                updateField("udpForwardingEnabled", event.target.checked)
+              }
+            />
+          </label>
+          <label>
             <span>UDP Forward Port</span>
             <input
               inputMode="numeric"
+              disabled={!draft.udpForwardingEnabled}
               value={draft.forzaUdpForwardPort}
               onChange={(event) =>
                 updateField("forzaUdpForwardPort", event.target.value)
@@ -3019,6 +2791,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
             <span>UDP Forward Port 2</span>
             <input
               inputMode="numeric"
+              disabled={!draft.udpForwardingEnabled}
               value={draft.forzaUdpForwardPort2}
               onChange={(event) =>
                 updateField("forzaUdpForwardPort2", event.target.value)

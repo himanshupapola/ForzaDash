@@ -1,5 +1,4 @@
 const { app, BrowserWindow, Menu, Tray, shell, powerSaveBlocker } = require("electron");
-const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -99,6 +98,7 @@ const SETTINGS_KEY = "forzadash_settings";
 const SETTINGS_ENV_MAP = {
   dashboardPort: "VITE_DASHBOARD_PORT",
   forzaUdpPort: "VITE_FORZA_UDP_PORT",
+  udpForwardingEnabled: "VITE_UDP_FORWARDING_ENABLED",
   forzaUdpForwardPort: "VITE_FORZA_UDP_FORWARD_PORT",
   forzaUdpForwardPort2: "VITE_FORZA_UDP_FORWARD_PORT_2",
   telemetryWsPort: "VITE_TELEMETRY_WS_PORT",
@@ -195,89 +195,6 @@ function sendFile(response, filePath) {
 
     response.writeHead(200, { "Content-Type": contentType(filePath) });
     response.end(data);
-  });
-}
-
-function readHardwareTemperature() {
-  const script = `
-$gpuSensors = @()
-$cpuSensors = @()
-foreach ($namespace in @("root/LibreHardwareMonitor", "root/OpenHardwareMonitor")) {
-  try {
-    $allSensors = Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop |
-      Where-Object { $_.SensorType -eq "Temperature" }
-    $gpuSensors += $allSensors |
-      Where-Object { $_.Name -match "GPU|Graphics|Hot Spot|Core" -or $_.Parent -match "GPU|Graphics|Radeon|NVIDIA|GeForce" } |
-      Select-Object Name, Parent, Value
-    $cpuSensors += $allSensors |
-      Where-Object { $_.Name -match "CPU|Package|Core" -or $_.Parent -match "CPU" } |
-      Select-Object Name, Parent, Value
-  } catch {}
-}
-
-if ($gpuSensors.Count -gt 0) {
-  $gpu0 = $gpuSensors | Where-Object { $_.Parent -match "0|Radeon|AMD" -or $_.Name -match "GPU Core|GPU Temperature|Core" } | Select-Object -First 1
-  if (-not $gpu0) { $gpu0 = $gpuSensors | Select-Object -First 1 }
-  [PSCustomObject]@{
-    temperature = [Math]::Round([double]$gpu0.Value, 0)
-    source = "gpu-wmi"
-    name = $gpu0.Name
-    parent = $gpu0.Parent
-  } | ConvertTo-Json -Compress
-  exit
-}
-
-if ($cpuSensors.Count -gt 0) {
-  $cpu = $cpuSensors | Select-Object -First 1
-  [PSCustomObject]@{
-    temperature = [Math]::Round([double]$cpu.Value, 0)
-    source = "cpu-wmi"
-    name = $cpu.Name
-    parent = $cpu.Parent
-  } | ConvertTo-Json -Compress
-  exit
-}
-
-try {
-  $thermal = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop |
-    Select-Object -First 1 -ExpandProperty CurrentTemperature
-  if ($thermal) {
-    [PSCustomObject]@{
-      temperature = [Math]::Round(($thermal / 10) - 273.15, 0)
-      source = "thermal-zone"
-      name = "MSAcpi_ThermalZoneTemperature"
-      parent = ""
-    } | ConvertTo-Json -Compress
-  }
-} catch {}
-`;
-
-  return new Promise((resolve) => {
-    execFile(
-      "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { timeout: 3000, windowsHide: true },
-      (error, stdout) => {
-        if (error) {
-          resolve({ temperature: null, source: "unavailable" });
-          return;
-        }
-
-        try {
-          const data = JSON.parse(String(stdout).trim().split(/\r?\n/).pop() || "{}");
-          const value = Number(data.temperature);
-          const result = {
-            temperature: Number.isFinite(value) && value > 0 ? value : null,
-            source: data.source || "unavailable",
-            name: data.name || "",
-            parent: data.parent || "",
-          };
-          resolve(result);
-        } catch (parseError) {
-          resolve({ temperature: null, source: "parse-failed" });
-        }
-      },
-    );
   });
 }
 
@@ -488,14 +405,6 @@ function startDashboardServer() {
       return;
     }
 
-    if (url.pathname === "/api/hardware-temp" || url.pathname === "/api/cpu-temp") {
-      readHardwareTemperature().then((result) => {
-        response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify(result));
-      });
-      return;
-    }
-
     const decodedPath = decodeURIComponent(url.pathname);
     const normalizedPath = path
       .normalize(decodedPath)
@@ -532,7 +441,7 @@ function startDashboardServer() {
 }
 
 function createTray(dashboardUrl) {
-  tray = new Tray(path.join(__dirname, "..", "forza-logo.png"));
+  tray = new Tray(path.join(__dirname, "..", "src", "assets", "forza-logo.png"));
   tray.setToolTip("ForzaDash");
   tray.on("click", () => {
     if (!dashboardWindow) {

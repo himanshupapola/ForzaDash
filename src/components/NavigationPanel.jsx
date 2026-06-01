@@ -1,7 +1,6 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Timer } from "lucide-react";
 import optimizedMap from "../assets/map-nav.jpg";
-import originalMap from "../../map.jpg";
 import "./NavigationPanel.css";
 
 const FH6_MAP_IMAGE_SIZE = 6144;
@@ -87,6 +86,7 @@ export default React.memo(function NavigationPanel({
   online,
   mapQuality = "optimized",
 }) {
+  const [fullQualityMap, setFullQualityMap] = useState(null);
   const driveStatsRef = useRef({
     lastAt: Date.now(),
     minutes: 0,
@@ -162,7 +162,25 @@ export default React.memo(function NavigationPanel({
 
   const driveMinutes = Math.floor(driveStatsRef.current.minutes);
   const drivenKm = driveStatsRef.current.distanceKm.toFixed(1);
-  const mapImage = mapQuality === "full" ? originalMap : optimizedMap;
+  const mapImage =
+    mapQuality === "full" && fullQualityMap ? fullQualityMap : optimizedMap;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (mapQuality !== "full" || fullQualityMap) return undefined;
+
+    import("../assets/map-full.jpg")
+      .then((module) => {
+        if (!cancelled) setFullQualityMap(module.default);
+      })
+      .catch(() => {
+        if (!cancelled) setFullQualityMap(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fullQualityMap, mapQuality]);
 
   return (
     <section className="glass-panel live-map-panel">

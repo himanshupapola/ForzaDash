@@ -1,6 +1,6 @@
 # ForzaDash
 
-A live telemetry dashboard for Forza Horizon. ForzaDash listens to the official Forza Data Out stream and shows speed, RPM, gear, tire temps, suspension, inputs, power, weather, and optional music controls.
+ForzaDash is a local live telemetry dashboard for Forza Horizon. It listens to the official Forza Data Out UDP stream and shows real dashboard data like speed, RPM, gear, inputs, boost, race timing, tires, suspension, power, torque, map position, weather, and optional music controls.
 
 It is not a mod menu, trainer, or memory editor. It does not patch, inject into, or modify Forza files.
 
@@ -14,11 +14,11 @@ https://github.com/user-attachments/assets/06b40da0-ab47-4fc6-8be9-ff057543def3
 
 Download the Windows EXE from the latest release:
 
-https://github.com/himanshupapola/ForzaDash/releases/tag/4.0
+https://github.com/himanshupapola/ForzaDash/releases/tag/5.0
 
 Run `ForzaDash.exe`. Normal users do not need Node.js, npm, or the source code.
 
-For best viewing, use fullscreen with `F11`. Tested at `1280x800` with a Logitech G29.
+For best viewing, use fullscreen with `F11` or double-click the dashboard. Tested at `1280x800` with a Logitech G29.
 
 ## Forza Setup
 
@@ -34,18 +34,28 @@ If the dashboard does not react, make sure Forza and ForzaDash use the same UDP 
 
 ## Features
 
-- Live speed, RPM, gear, boost, throttle, brake, clutch, and steering
-- Tire temperature, suspension, power, and torque panels
+- Live speed, RPM, gear, boost, throttle, brake, clutch, handbrake, and steering
+- Real Forza telemetry race panel: position, lap, race time, current lap, last lap, and best lap
+- Tire temperature, suspension, grip, G-force, power, and torque panels
+- Optimized navigation map with optional full-quality map mode
 - Weather panel with configurable region
 - Demo Drive Mode when Forza is not sending packets
+- Optional red flash warning for loss of control, disabled by default
+- Optional UDP forwarding toggle, disabled by default
 - Optional Spotify and YouTube Music controls
 - Local-only dashboard and telemetry services
 - Portable Windows build
 
-## Version 4 New Features
+## Version 5 New Features
 
-- New navigation system with live map positioning and last-known location support
-- Improved dashboard UI polish for cleaner fullscreen use
+- New clean six-tile race telemetry panel using only real Forza values
+- Low-load optimized map mode by default, with full-quality map available in Settings
+- Double-click fullscreen support for both Electron and local browser mode
+- Flash Mode setting for large red edge warnings when the car loses control
+- UDP forwarding is now truly optional and disabled by default
+- Removed unused hardware temperature polling/API for less background work
+- Image assets moved into `src/assets` and mapped through the app build
+- Boost, navigation, race, and header UI polish
 
 ## Music
 
@@ -64,9 +74,13 @@ The app settings panel can change:
 - Weather region
 - Dashboard port
 - Forza UDP Data Out port
+- UDP forwarding on/off
 - UDP forward ports
 - Telemetry WebSocket port
 - Demo Drive Mode
+- Speed unit
+- Map quality
+- Flash Mode
 - Music login data
 
 Defaults:
@@ -74,9 +88,15 @@ Defaults:
 ```text
 Dashboard: http://127.0.0.1:5173/
 Telemetry: ws://127.0.0.1:17878/
+Forza UDP: 127.0.0.1:1234
+UDP forwarding: Off
+Map quality: Optimized / Low Load
+Flash Mode: Off
 ```
 
 ForzaDash binds its dashboard, telemetry WebSocket, and UDP listener to `127.0.0.1` only. They are not exposed to public IPs or other devices on your network.
+
+Port changes and UDP forwarding changes apply after restarting the local server/app.
 
 ## Demo Drive Mode
 
@@ -136,6 +156,11 @@ If live data does not appear:
 - Use IP `127.0.0.1`.
 - Use port `1234`, or match the app setting.
 - Restart ForzaDash after port changes.
+
+If fullscreen does not work:
+
+- Use `F11`, double-click an empty part of the dashboard, or use the Electron window fullscreen shortcut.
+- Do not double-click buttons, inputs, settings fields, or links; those controls ignore dashboard fullscreen.
 
 If music controls do not work:
 
