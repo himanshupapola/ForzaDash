@@ -2891,16 +2891,26 @@ const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
         imageSrc={tiresSuspensionImage}
       />
       <InputBars telemetry={telemetry} />
-      <div className="glass-panel system-card power-graph-card" aria-hidden="true" />
+      <TireSuspensionCard
+        className="tire-suspension-card-right"
+        tireTemps={tireTemps}
+        suspensionTravel={suspensionTravel}
+        imageSrc={tiresSuspensionImage}
+      />
     </section>
   );
 });
 
-function TireSuspensionCard({ tireTemps, suspensionTravel, imageSrc }) {
+function TireSuspensionCard({
+  className = "",
+  tireTemps,
+  suspensionTravel,
+  imageSrc,
+}) {
   const corners = ["FL", "FR", "RL", "RR"];
 
   return (
-    <div className="glass-panel system-card tire-suspension-card">
+    <div className={`glass-panel system-card tire-suspension-card ${className}`}>
       <h3>TIRES & SUSPENSION</h3>
       <div className="tire-suspension-layout">
         {corners.map((corner, index) => {

@@ -2488,7 +2488,7 @@ h3 {
 
 .tire-suspension-card h3 {
   color: #9aa4b8;
-  text-align: left;
+  text-align: center;
   margin-bottom: clamp(5px, 0.8vh, 10px);
 }
 
@@ -2511,6 +2511,8 @@ h3 {
   left: calc(clamp(300px, 25.8vw, 430px) + var(--hud-gap));
   bottom: 0;
   width: clamp(360px, 39vw, 560px);
+  height: calc(var(--hud-bottom-row) * 0.6);
+  min-height: calc(var(--hud-bottom-row) * 0.6);
 }
 
 .bottom-area > .power-graph-card {
@@ -2518,6 +2520,11 @@ h3 {
   right: 0;
   bottom: 0;
   width: clamp(260px, 34vw, 440px);
+}
+
+.tire-suspension-card-right {
+  left: auto;
+  right: 0;
 }
 
 .systems-car-slot {
