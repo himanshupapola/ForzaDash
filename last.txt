@@ -1,0 +1,54 @@
+Forza Data Out telemetry generally gives your car/player telemetry only, not a full lobby roster.
+
+What this app/server is already parsing includes:
+
+racePosition: your current race position
+lapNumber: your current lap number
+currentLap: current lap time
+lastLap: last lap time
+bestLap: best lap time
+currentRaceTime: total/current race time
+positionX/Y/Z: your car world position
+speed, RPM, gear, throttle, brake, tire temps, suspension, etc.
+What it does not normally give:
+
+All player names
+Other players’ positions
+Current player/gamertag name
+Full race leaderboard names
+So: yes, it can show your position and timing data, but no, it cannot show all player names or your gamertag/player name from standard Forza telemetry alone.
+
+
+
+
+
+11:41 PM
+User attachment
+ok just a thought dont do it we can desing somethg like this form abovedata
+11:45 PM
+
+
+
+Worked for 0s
+Yeah, this is very doable from the data you already have.
+
+From telemetry we can populate:
+
+POSITION: racePosition
+LAP: lapNumber
+RACE TIME: currentRaceTime
+CURRENT LAP: currentLap
+LAST LAP: lastLap
+BEST LAP: bestLap
+For the /24, /12, and race progress:
+
+Total racers (/24) is probably not available from standard telemetry, so that would need a fixed/default value or be hidden.
+Total laps (/12) is also likely not available directly, so fixed/default or hidden.
+Race complete percent could be estimated from lapNumber plus track distance if enough distance/lap data is reliable, but it may be approximate.
+Best design fit:
+
+A clean “Race Timing” card with three large stats across the top.
+Three lap-time mini panels below.
+A bottom race progress strip using estimated completion.
+No player names, just “YOU”.
+So the concept is solid, but some parts would be “real telemetry” and some would be “estimated/default UI.”

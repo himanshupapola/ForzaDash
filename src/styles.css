@@ -83,6 +83,34 @@ button:focus-visible,
   mask-image: radial-gradient(circle at 50% 45%, black, transparent 72%);
 }
 
+.control-flash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(255, 0, 0, 0.34) 80%, rgba(255, 0, 0, 0.82) 100%),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.82), transparent 8%, transparent 92%, rgba(255, 0, 0, 0.82)),
+    linear-gradient(180deg, rgba(255, 0, 0, 0.78), transparent 9%, transparent 91%, rgba(255, 0, 0, 0.78));
+  mix-blend-mode: screen;
+}
+
+.control-flash-overlay.active {
+  animation: control-edge-flash 320ms steps(2, end) infinite;
+}
+
+@keyframes control-edge-flash {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .glass-panel,
 .top-bar {
   border: 1px solid rgba(35, 151, 205, 0.11);
@@ -175,6 +203,20 @@ button:focus-visible,
   text-shadow: 0 0 10px rgba(255, 23, 112, 0.45);
 }
 
+.brand-mark {
+  gap: clamp(3px, 0.28vw, 6px);
+}
+
+.forza-logo {
+  margin-right: clamp(-22px, -1.15vw, -13px);
+}
+
+.brand-lines strong {
+  font-style: italic;
+  letter-spacing: 0.03em;
+  transform: translateX(4px);
+}
+
 .assist-row,
 .time-weather,
 .panel-title {
@@ -248,7 +290,7 @@ button:focus-visible,
   grid-column: 1;
   justify-self: center;
   text-align: center;
-  font-size: clamp(12px, 0.85vw, 16px);
+  font-size: clamp(15px, 1.05vw, 20px);
   line-height: 1;
 }
 
@@ -1468,11 +1510,9 @@ h3 {
   right: auto;
   top: auto;
   bottom: auto;
-  grid-template-rows: minmax(
-      calc(clamp(72px, 8.5vh, 104px) + var(--right-power-height-shift)),
-      1.15fr
-    )
-    minmax(0, 3.4fr);
+  grid-template-rows:
+    minmax(0, 3.4fr)
+    minmax(calc(clamp(72px, 8.5vh, 104px) + var(--right-power-height-shift)), 1.15fr);
   gap: var(--hud-gap);
   align-items: stretch;
   align-content: stretch;
@@ -1495,7 +1535,7 @@ h3 {
   height: 100%;
   min-height: calc(clamp(72px, 8.5vh, 104px) + var(--right-power-height-shift));
   padding: clamp(8px, 0.65vw, 12px) clamp(12px, 1vw, 18px);
-  border-radius: 8px 8px 0 0;
+  border-radius: 0 0 8px 8px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: clamp(5px, 0.55vh, 9px);
@@ -1583,16 +1623,14 @@ h3 {
 }
 
 .boost-pressure-panel {
-  --boost-accent: #27c9ff;
-  --boost-accent-soft: rgba(39, 201, 255, 0.22);
-  --boost-border: rgba(39, 201, 255, 0.16);
+  --boost-accent: #aab6bf;
+  --boost-accent-soft: rgba(170, 182, 191, 0.16);
+  --boost-border: rgba(35, 151, 205, 0.11);
   --boost-track: rgba(91, 119, 136, 0.24);
   position: relative;
   border-color: var(--boost-border);
   border-radius: 8px;
-  background:
-    radial-gradient(circle at 88% 42%, rgba(39, 201, 255, 0.055), transparent 32%),
-    linear-gradient(145deg, rgba(1, 9, 14, 0.98), rgba(0, 4, 8, 0.98));
+  background: linear-gradient(145deg, rgba(1, 9, 14, 0.96), rgba(0, 4, 8, 0.98));
 }
 
 .boost-pressure-panel > * {
@@ -1623,14 +1661,12 @@ h3 {
 }
 
 .boost-live-value strong {
-  color: var(--boost-level-color);
+  color: #f5fbff;
   font-size: clamp(28px, 2.55vw, 48px);
   font-weight: 700;
   line-height: 0.76;
   letter-spacing: -0.05em;
-  text-shadow:
-    0 0 12px color-mix(in srgb, var(--boost-level-color) 52%, transparent),
-    0 0 26px color-mix(in srgb, var(--boost-level-color) 22%, transparent);
+  text-shadow: none;
 }
 
 .boost-live-value small {
@@ -1652,12 +1688,12 @@ h3 {
 }
 
 .boost-pressure-level strong {
-  color: var(--boost-level-color);
+  color: #aab6bf;
   font-size: clamp(20px, 1.65vw, 32px);
   font-weight: 700;
   line-height: 0.9;
   letter-spacing: 0.08em;
-  text-shadow: 0 0 12px color-mix(in srgb, var(--boost-level-color) 42%, transparent);
+  text-shadow: none;
 }
 
 .boost-pressure-meter {
@@ -1672,7 +1708,7 @@ h3 {
       transparent 7px 12px
     ),
     rgba(0, 0, 0, 0.24);
-  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1698,9 +1734,7 @@ h3 {
     #000 0 7px,
     transparent 7px 12px
   );
-  box-shadow:
-    0 0 8px color-mix(in srgb, var(--boost-level-color) 52%, transparent),
-    inset 0 0 6px rgba(255, 255, 255, 0.12);
+  box-shadow: none;
   transition: clip-path 160ms ease-out;
 }
 
@@ -1722,6 +1756,7 @@ h3 {
 .right-stack > .music-panel {
   width: calc(100% + var(--right-panel-width-shift));
   justify-self: end;
+  border-radius: 8px 8px 0 0;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   align-content: stretch;
 }
@@ -1811,6 +1846,12 @@ h3 {
   text-shadow: 0 0 14px rgba(30, 215, 96, 0.22);
 }
 
+.music-panel.credit-mode .panel-title h2 {
+  color: #aab6bf;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+}
+
 .spotify-logo {
   width: clamp(16px, 1vw, 20px);
   height: clamp(16px, 1vw, 20px);
@@ -1888,6 +1929,71 @@ h3 {
   border: 1px solid rgba(255, 255, 255, 0.14);
   font-size: 10px;
   font-weight: 900;
+}
+
+.race-timing-state {
+  grid-row: 2 / -1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  font-family: Rajdhani, sans-serif;
+  padding-top: clamp(8px, 1vh, 16px);
+  border-top: 1px solid rgba(37, 200, 255, 0.08);
+  border-bottom: 1px solid rgba(37, 200, 255, 0.08);
+}
+
+.race-timing-tile {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: clamp(7px, 0.8vh, 12px);
+  padding: clamp(13px, 1.1vw, 20px) clamp(13px, 1.15vw, 22px);
+  border-left: 1px solid rgba(37, 200, 255, 0.11);
+  border-top: 1px solid rgba(37, 200, 255, 0.09);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 32% 58%, rgba(37, 200, 255, 0.055), transparent 38%),
+    linear-gradient(145deg, rgba(0, 8, 13, 0.18), rgba(0, 3, 6, 0.42));
+}
+
+.race-timing-tile:nth-child(3n + 1) {
+  border-left: 0;
+}
+
+.race-timing-tile:nth-child(-n + 3) {
+  border-top: 0;
+}
+
+.race-timing-tile span {
+  display: block;
+  color: rgba(178, 195, 207, 0.78);
+  font-size: clamp(9px, 0.62vw, 12px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(37, 200, 255, 0.16);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.race-timing-tile strong {
+  color: #25c8ff;
+  font-size: clamp(31px, 2.7vw, 54px);
+  font-weight: 900;
+  line-height: 0.86;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+.race-timing-tile:nth-child(-n + 3) strong,
+.race-timing-tile:nth-child(n + 4) strong {
+  color: #f5fbff;
+  font-size: clamp(22px, 1.85vw, 36px);
+  letter-spacing: 0.035em;
+  text-shadow: none;
 }
 
 .settings-trigger {
@@ -3112,11 +3218,9 @@ h3 {
     top: auto;
     bottom: auto;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(
-        calc(clamp(72px, 8.5vh, 104px) + var(--right-power-height-shift)),
-        1.15fr
-      )
-      minmax(0, 3.4fr);
+    grid-template-rows:
+      minmax(0, 3.4fr)
+      minmax(calc(clamp(72px, 8.5vh, 104px) + var(--right-power-height-shift)), 1.15fr);
   }
 
 }
@@ -3125,11 +3229,9 @@ h3 {
   .right-stack {
     --right-stack-clearance: calc(clamp(24px, 3.2vh, 42px) + 10px);
     --right-power-height-shift: 0px;
-    grid-template-rows: minmax(
-        calc(clamp(72px, 8vh, 98px) + var(--right-power-height-shift)),
-        1.15fr
-      )
-      minmax(0, 3.4fr);
+    grid-template-rows:
+      minmax(0, 3.4fr)
+      minmax(calc(clamp(72px, 8vh, 98px) + var(--right-power-height-shift)), 1.15fr);
     gap: clamp(4px, 0.45vh, 7px);
   }
 

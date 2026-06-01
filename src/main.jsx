@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   Repeat,
+  Radio,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -49,7 +50,7 @@ import {
 } from "recharts";
 import "./styles.css";
 import speedometerBg from "../spm.png";
-import horizonMap from "../map.jpg";
+import horizonMap from "./assets/map-nav.jpg";
 
 const fallbackTelemetry = {
   status: "WAITING",
@@ -88,6 +89,8 @@ const DEFAULT_SETTINGS = {
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
   demoDriveMode: false,
   speedUnit: "kmh",
+  mapQuality: "optimized",
+  flashMode: false,
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
 const FH6_MAP_IMAGE_SIZE = 6144;
@@ -331,6 +334,33 @@ function formatValue(value, unit = "", digits = 0) {
 function normalizeColor(value, fallback = DEFAULT_SETTINGS.backgroundColor) {
   const color = String(value || "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+}
+
+function getControlLossInfo(telemetry) {
+  const throttle = clamp((Number(telemetry?.throttle) || 0) / 255, 0, 1);
+  const brake = clamp((Number(telemetry?.brake) || 0) / 255, 0, 1);
+  const steer = clamp(Math.abs(Number(telemetry?.steer) || 0) / 127, 0, 1);
+  const fallbackSlip = [
+    brake * 0.55 + steer * 0.28,
+    brake * 0.55 + steer * 0.28,
+    throttle * 0.48 + steer * 0.22,
+    throttle * 0.48 + steer * 0.22,
+  ];
+  const slipValues = [
+    getTelemetryValue(telemetry, ["TireCombinedSlipFrontLeft", "tireCombinedSlipFrontLeft", "slipFL"], fallbackSlip[0]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipFrontRight", "tireCombinedSlipFrontRight", "slipFR"], fallbackSlip[1]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipRearLeft", "tireCombinedSlipRearLeft", "slipRL"], fallbackSlip[2]),
+    getTelemetryValue(telemetry, ["TireCombinedSlipRearRight", "tireCombinedSlipRearRight", "slipRR"], fallbackSlip[3]),
+  ].map((value) => Math.max(0, Number(value) || 0));
+  const maxSlip = Math.max(...slipValues);
+  const avgSlip = slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
+  const gripIndex = clamp(Math.round(100 - avgSlip * 80), 0, 100);
+  const wheelspinPct = maxSlip > 1 ? clamp(Math.round(((maxSlip - 1) / 1.5) * 100), 0, 100) : 0;
+  return {
+    gripIndex,
+    wheelspinPct,
+    losingControl: gripIndex < 40 || wheelspinPct > 55,
+  };
 }
 
 function readStoredYouTubeVolume() {
@@ -936,6 +966,46 @@ function formatTime(ms = 0) {
   return `${minutes}:${seconds}`;
 }
 
+function formatLapTime(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "--:--.---";
+  const totalMs = Math.round(numeric * 1000);
+  const minutes = Math.floor(totalMs / 60000);
+  const seconds = Math.floor((totalMs % 60000) / 1000);
+  const millis = totalMs % 1000;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
+}
+
+function formatRaceNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "--";
+  return String(Math.round(numeric)).padStart(2, "0");
+}
+
+function isTelemetryRaceActive(telemetry) {
+  return telemetry?.status === "DEMO" || Number(telemetry?.isRaceOn) === 1;
+}
+
+function formatCarClass(value) {
+  const classes = ["D", "C", "B", "A", "S1", "S2", "X"];
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "--";
+  return classes[Math.round(numeric)] || String(Math.round(numeric));
+}
+
+function formatPerformanceIndex(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "--";
+  return String(Math.round(numeric));
+}
+
+function formatDrivetrain(value) {
+  const drivetrains = ["FWD", "RWD", "AWD"];
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "--";
+  return drivetrains[Math.round(numeric)] || String(Math.round(numeric));
+}
+
 function validTemperature(value) {
   return Number.isFinite(value) && value > -40 && value < 150;
 }
@@ -1403,6 +1473,8 @@ function App() {
       ? "ONLINE"
       : "NO PACKETS";
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
+  const controlLossInfo = getControlLossInfo(smoothTelemetry);
+  const flashModeActive = Boolean(settings.flashMode && controlLossInfo.losingControl);
   const speed = Math.round(
     useSmoothedNumber(toDisplaySpeed(smoothTelemetry.speedKmh, settings.speedUnit), {
       responsiveness: 7.5,
@@ -1432,6 +1504,7 @@ function App() {
       <TopBar
         online={online}
         telemetryStatus={telemetryStatus}
+        telemetry={smoothTelemetry}
         weather={weather}
         clock={clock}
         updateInfo={updateInfo}
@@ -1446,7 +1519,11 @@ function App() {
           <section className="glass-panel navigation-spacer-card">
             <PowerGraph telemetry={smoothTelemetry} />
           </section>
-          <NavigationSection telemetry={mapTelemetry} online={online} />
+          <NavigationSection
+            telemetry={mapTelemetry}
+            online={online}
+            mapQuality={settings.mapQuality}
+          />
         </aside>
         <CenterDial
           telemetry={smoothTelemetry}
@@ -1457,8 +1534,11 @@ function App() {
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
+          <MusicPanel
+            telemetry={smoothTelemetry}
+            onOpenSettings={openSettings}
+          />
           <BoostPressurePanel telemetry={smoothTelemetry} />
-          <MusicPanel onOpenSettings={openSettings} />
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
@@ -1468,6 +1548,12 @@ function App() {
           telemetryOnline={Boolean(online)}
         />
       )}
+      {settings.flashMode && (
+        <div
+          className={`control-flash-overlay ${flashModeActive ? "active" : ""}`}
+          aria-hidden="true"
+        />
+      )}
     </main>
   );
 }
@@ -1475,11 +1561,17 @@ function App() {
 const TopBar = React.memo(function TopBar({
   online,
   telemetryStatus,
+  telemetry,
   weather,
   clock,
   updateInfo,
 }) {
   const [clockTime, meridiem] = clock.time.split(" ");
+  const topTelemetryStats = [
+    ["CLASS", formatCarClass(telemetry?.carClass)],
+    ["PI", formatPerformanceIndex(telemetry?.carPerformanceIndex)],
+    ["DRIVE", formatDrivetrain(telemetry?.drivetrainType)],
+  ];
 
   return (
     <header className="top-bar">
@@ -1493,10 +1585,10 @@ const TopBar = React.memo(function TopBar({
         </div>
       </div>
       <div className="assist-row">
-        {["ABS", "TCS", "STM"].map((item) => (
-          <div className="assist" key={item}>
-            <span>{item}</span>
-            <strong>ON</strong>
+        {topTelemetryStats.map(([label, value]) => (
+          <div className="assist" key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
           </div>
         ))}
         <div className="assist wide">
@@ -2063,7 +2155,7 @@ const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry })
       : 0;
   const boostPsi = Number.isFinite(rawBoostPsi) ? rawBoostPsi : boostBar * 14.5038;
   const pressurePsi = Math.max(0, boostPsi);
-  const scaleMaxPsi = 30;
+  const scaleMaxPsi = 15;
   const boostRatio = clamp(pressurePsi / scaleMaxPsi, 0, 1);
   const pressureLevel =
     boostRatio < 0.33 ? "LOW" : boostRatio < 0.67 ? "MID" : "MAX";
@@ -2106,7 +2198,33 @@ const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry })
   );
 });
 
-const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
+function RaceTimingPanel({ telemetry }) {
+  const hasRaceTiming = isTelemetryRaceActive(telemetry);
+  const timingStats = [
+    ["POSITION", hasRaceTiming ? formatRaceNumber(telemetry.racePosition) : "--"],
+    ["LAP", hasRaceTiming ? formatRaceNumber(telemetry.lapNumber) : "--"],
+    ["RACE TIME", hasRaceTiming ? formatLapTime(telemetry.currentRaceTime) : "--:--.---"],
+    ["CURRENT LAP", hasRaceTiming ? formatLapTime(telemetry.currentLap) : "--:--.---"],
+    ["LAST LAP", hasRaceTiming ? formatLapTime(telemetry.lastLap) : "--:--.---"],
+    ["BEST LAP", hasRaceTiming ? formatLapTime(telemetry.bestLap) : "--:--.---"],
+  ];
+
+  return (
+    <div className="race-timing-state" aria-label="Race telemetry">
+      {timingStats.map(([label, value]) => (
+        <div className="race-timing-tile" key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const MusicPanel = React.memo(function MusicPanel({
+  telemetry,
+  onOpenSettings,
+}) {
   const settings = useSettings();
   const configured = isSpotifyConfigured();
   const spotifyLoggedIn = hasSpotifyLogin();
@@ -2541,6 +2659,7 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
 
   const track = playback?.item;
   const isYouTube = musicProvider === "youtube";
+  const isCredit = musicProvider === "himans";
   const title = isYouTube
     ? youtubeTrack?.title || "YouTube Music"
     : track?.name || "Connect Spotify";
@@ -2575,18 +2694,31 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
     : spotifyLoggedIn
       ? () => runCommand("toggle")
       : loginSpotify;
+  const nextProvider = isYouTube ? "himans" : isCredit ? "spotify" : "youtube";
+  const providerLabel = isYouTube
+    ? "YOUTUBE"
+    : isCredit
+      ? "RACE"
+      : "SPOTIFY";
+  const providerToggleLabel = isYouTube
+    ? "Show credit"
+    : isCredit
+      ? "Switch to Spotify"
+      : "Switch to YouTube";
 
   return (
     <section
-      className={`glass-panel music-panel ${isYouTube ? "youtube-mode" : ""}`}
+      className={`glass-panel music-panel ${isYouTube ? "youtube-mode" : ""} ${isCredit ? "credit-mode" : ""}`}
     >
       <div className="panel-title">
         {isYouTube ? (
           <Youtube className="provider-icon youtube-provider-icon" />
+        ) : isCredit ? (
+          null
         ) : (
           <img className="spotify-logo" src={spotifyLogo} alt="" />
         )}
-        <h2>{isYouTube ? "YOUTUBE" : "SPOTIFY"}</h2>
+        <h2>{providerLabel}</h2>
         {isYouTube &&
           (!youtubeMusicPlaying || keepYouTubeOpenButtonVisible) && (
             <button
@@ -2600,12 +2732,14 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
         <button
           className={`provider-toggle ${isYouTube && youtubeMusicPlaying ? "is-hidden" : ""}`}
           type="button"
-          aria-label={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
-          title={isYouTube ? "Switch to Spotify" : "Switch to YouTube"}
-          onClick={() => setMusicProvider(isYouTube ? "spotify" : "youtube")}
+          aria-label={providerToggleLabel}
+          title={providerToggleLabel}
+          onClick={() => setMusicProvider(nextProvider)}
           disabled={isYouTube && youtubeMusicPlaying}
         >
           {isYouTube ? (
+            <Radio />
+          ) : isCredit ? (
             <img className="provider-toggle-logo" src={spotifyLogo} alt="" />
           ) : (
             <Youtube />
@@ -2622,6 +2756,10 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           <span />
         </button>
       </div>
+      {isCredit ? (
+        <RaceTimingPanel telemetry={telemetry} />
+      ) : (
+        <>
       <div className="track-row">
         <div
           className="album-art"
@@ -2755,6 +2893,8 @@ const MusicPanel = React.memo(function MusicPanel({ onOpenSettings }) {
           </button>
         )}
       </div>
+        </>
+      )}
     </section>
   );
 });
@@ -2794,6 +2934,8 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
       spotifyClientId: draft.spotifyClientId.trim(),
       demoDriveMode: telemetryOnline ? false : Boolean(draft.demoDriveMode),
+      mapQuality: draft.mapQuality === "full" ? "full" : "optimized",
+      flashMode: Boolean(draft.flashMode),
     });
     setSaved(true);
     onClose();
@@ -2913,6 +3055,26 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
               <option value="kmh">KM/H</option>
               <option value="mph">MPH</option>
             </select>
+          </label>
+          <label>
+            <span>Map Quality</span>
+            <select
+              value={draft.mapQuality || DEFAULT_SETTINGS.mapQuality}
+              onChange={(event) => updateField("mapQuality", event.target.value)}
+            >
+              <option value="optimized">Optimized / Low Load</option>
+              <option value="full">Full Quality</option>
+            </select>
+          </label>
+          <label>
+            <span>Flash Mode</span>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.flashMode)}
+              onChange={(event) =>
+                updateField("flashMode", event.target.checked)
+              }
+            />
           </label>
         </div>
         <p className="settings-note">

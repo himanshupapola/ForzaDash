@@ -92,12 +92,13 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #25c8ff;
+  color: #aab6bf;
   font-family: Rajdhani, sans-serif;
   font-size: var(--panel-heading-size);
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   pointer-events: none;
+  text-shadow: none;
 }
 
 .live-map-world {
@@ -328,12 +329,13 @@
   gap: 12px;
   padding: 9px 12px 0;
   border-top: 1px solid rgba(37, 200, 255, 0.16);
-  color: rgba(210, 222, 232, 0.86);
+  color: #aab6bf;
   font-family: Rajdhani, sans-serif;
-  font-size: clamp(13px, 0.9vw, 17px);
+  font-size: clamp(11px, 0.78vw, 14px);
   font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
-  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  text-shadow: none;
 }
 
 .navigation-stats span {
@@ -358,7 +360,7 @@
 }
 
 .navigation-muted {
-  opacity: 0.55;
+  opacity: 0.82;
 }
 
 @media (max-width: 820px) {

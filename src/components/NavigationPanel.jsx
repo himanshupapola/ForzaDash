@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { Timer } from "lucide-react";
-import horizonMap from "../../map.jpg";
+import optimizedMap from "../assets/map-nav.jpg";
+import originalMap from "../../map.jpg";
 import "./NavigationPanel.css";
 
 const FH6_MAP_IMAGE_SIZE = 6144;
@@ -81,7 +82,11 @@ function storeMapState(mapState) {
   } catch {}
 }
 
-export default React.memo(function NavigationPanel({ telemetry, online }) {
+export default React.memo(function NavigationPanel({
+  telemetry,
+  online,
+  mapQuality = "optimized",
+}) {
   const driveStatsRef = useRef({
     lastAt: Date.now(),
     minutes: 0,
@@ -157,6 +162,7 @@ export default React.memo(function NavigationPanel({ telemetry, online }) {
 
   const driveMinutes = Math.floor(driveStatsRef.current.minutes);
   const drivenKm = driveStatsRef.current.distanceKm.toFixed(1);
+  const mapImage = mapQuality === "full" ? originalMap : optimizedMap;
 
   return (
     <section className="glass-panel live-map-panel">
@@ -181,7 +187,7 @@ export default React.memo(function NavigationPanel({ telemetry, online }) {
           }}
         >
           <img
-            src={horizonMap}
+            src={mapImage}
             alt=""
             style={{
               transform: `translate(-${centeredMapX}px, -${centeredMapY}px)`,
