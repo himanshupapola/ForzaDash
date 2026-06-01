@@ -39,6 +39,15 @@ import InputBarsSection from "./components/InputBars";
 import NavigationSection from "./components/NavigationPanel";
 import TireSuspensionSection from "./components/TireSuspensionCard";
 import CircularProgressBar from "react-circular-progress";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "./styles.css";
 import speedometerBg from "../spm.png";
 import horizonMap from "../map.jpg";
@@ -186,11 +195,18 @@ function createDemoTelemetry(frame) {
     0,
     2,
   );
-  const powerHp = clamp(95 + (rpm / maxRpm) * 510 + throttle * 1.15, 70, 760);
+  const rpmRatio = clamp(rpm / maxRpm, 0, 1);
+  const torqueCurve =
+    Math.sin(rpmRatio * Math.PI) * 0.64 + Math.max(0, 0.58 - rpmRatio) * 0.18;
   const torqueNm = clamp(
-    170 + (rpm / maxRpm) * 570 + throttle * 1.55,
-    120,
-    980,
+    140 + torqueCurve * 360 + throttle * 0.55,
+    95,
+    560,
+  );
+  const powerHp = clamp(
+    80 + rpmRatio ** 1.25 * 680 + throttle * 0.9,
+    70,
+    820,
   );
   const gripDemo = (Math.sin(t * 0.72) + 1) / 2;
   const demoGripIndex = clamp(10 + gripDemo * 90, 10, 100);
@@ -1428,7 +1444,9 @@ function App() {
             gear={gear}
             speedUnit={settings.speedUnit}
           />
-          <section className="glass-panel navigation-spacer-card" aria-hidden="true" />
+          <section className="glass-panel navigation-spacer-card">
+            <PowerGraph telemetry={smoothTelemetry} />
+          </section>
           <NavigationSection telemetry={mapTelemetry} online={online} />
         </aside>
         <CenterDial
@@ -3098,27 +3116,35 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
     { at: Date.now(), power: 0, torque: 0 },
   ]);
   const lastSampleRef = useRef(0);
+  const smoothSampleRef = useRef({ power: 0, torque: 0 });
 
   useEffect(() => {
     const now = Date.now();
-    if (now - lastSampleRef.current < 220) return;
+    if (now - lastSampleRef.current < 90) return;
     lastSampleRef.current = now;
+
+    const targetPower = Math.max(0, telemetry.powerHp || 0);
+    const targetTorque = Math.max(0, telemetry.torqueNm || 0);
+    const previous = smoothSampleRef.current;
+    const nextPower = previous.power + (targetPower - previous.power) * 0.34;
+    const nextTorque = previous.torque + (targetTorque - previous.torque) * 0.34;
+    smoothSampleRef.current = { power: nextPower, torque: nextTorque };
 
     const nextSample = {
       at: now,
-      power: Math.max(0, telemetry.powerHp || 0),
-      torque: Math.max(0, telemetry.torqueNm || 0),
+      power: nextPower,
+      torque: nextTorque,
     };
 
     setSamples((current) => [
-      ...current.filter((sample) => now - sample.at <= graphWindowMs),
+      ...current.filter((sample) => now - sample.at <= graphWindowMs + 1400),
       nextSample,
     ]);
   }, [telemetry.powerHp, telemetry.torqueNm]);
 
   const now = Date.now();
   const visibleSamples = samples.filter(
-    (sample) => now - sample.at <= graphWindowMs,
+    (sample) => now - sample.at <= graphWindowMs + 900,
   );
   const maxValue = Math.max(
     100,
@@ -3126,52 +3152,24 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
     ...visibleSamples.map((sample) => Math.max(sample.power, sample.torque)),
   );
   const scaleMax = Math.ceil(maxValue / 100) * 100;
-
-  function toLivePath(key) {
-    if (visibleSamples.length < 2) return "";
-
-    const points = visibleSamples.map((sample) => {
-        const x = clamp(
-          100 - ((now - sample.at) / graphWindowMs) * 100,
-          0,
-          100,
-        );
-        const y = clamp(100 - (sample[key] / scaleMax) * 100, 0, 100);
-        return { x, y };
-      });
-
-    if (points[0].x > 0) {
-      points.unshift({ x: 0, y: points[0].y });
-    }
-
-    return points
-      .map((point, index) => {
-        if (index === 0) return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-        const previous = points[index - 1];
-        const controlX = (previous.x + point.x) / 2;
-        return `C ${controlX.toFixed(2)} ${previous.y.toFixed(2)} ${controlX.toFixed(2)} ${point.y.toFixed(2)} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-      })
-      .join(" ");
+  const chartData = visibleSamples.map((sample) => ({
+    t: -((now - sample.at) / 1000),
+    torque: sample.torque,
+    power: sample.power,
+  }));
+  if (chartData.length > 0) {
+    const latestSample = chartData[chartData.length - 1];
+    chartData.push({
+      ...latestSample,
+      t: 0,
+    });
   }
-
-  function toAreaPath(path) {
-    if (!path) return "";
-    const firstMatch = path.match(/^M\s+([\d.]+)\s+([\d.]+)/);
-    const lastMatch = path.match(/(?:M|L|C)\s+(?:[\d.]+\s+[\d.]+\s+){0,2}([\d.]+)\s+([\d.]+)$/);
-    if (!firstMatch || !lastMatch) return "";
-    return `${path} L ${lastMatch[1]} 100 L ${firstMatch[1]} 100 Z`;
-  }
-
-  const torquePath = toLivePath("torque");
-  const powerPath = toLivePath("power");
-  const torqueAreaPath = toAreaPath(torquePath);
-  const powerAreaPath = toAreaPath(powerPath);
   const latestTorque = Math.max(0, Math.round(telemetry.torqueNm || 0));
   const latestPower = Math.max(0, Math.round(telemetry.powerHp || 0));
   return (
     <div className="system-card power-graph-card">
       <div className="power-graph-title">
-        <h3>POWER</h3>
+        <h3>POWER & TORQUE</h3>
         <div className="power-current">
           <span className="power-current-torque">
             ✦ {latestTorque} <small>NM</small>
@@ -3181,25 +3179,63 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
           </span>
         </div>
       </div>
-      <svg
-        className="power-graph"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <g className="graph-grid">
-          {[20, 40, 60, 80].map((y) => (
-            <line key={`h-${y}`} x1="0" y1={y} x2="100" y2={y} />
-          ))}
-          {[16.67, 33.33, 50, 66.67, 83.33].map((x) => (
-            <line key={`v-${x}`} x1={x} y1="0" x2={x} y2="100" />
-          ))}
-        </g>
-        <path className="torque-area live-area" d={torqueAreaPath} />
-        <path className="power-area live-area" d={powerAreaPath} />
-        <path className="torque-line active-curve live-curve" d={torquePath} />
-        <path className="power-line active-curve live-curve" d={powerPath} />
-      </svg>
+      <div className="power-graph" aria-hidden="true">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={chartData}
+            margin={{ top: 8, right: 4, left: 0, bottom: 4 }}
+          >
+            <defs>
+              <linearGradient id="torqueFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ff1f3d" stopOpacity={0.42} />
+                <stop offset="92%" stopColor="#ff1f3d" stopOpacity={0.035} />
+              </linearGradient>
+              <linearGradient id="powerFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#31b8ff" stopOpacity={0.34} />
+                <stop offset="92%" stopColor="#31b8ff" stopOpacity={0.025} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              stroke="rgba(92,145,170,0.14)"
+              strokeDasharray="3 7"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="t"
+              type="number"
+              domain={[-9.35, 0.35]}
+              hide
+              allowDataOverflow
+            />
+            <YAxis domain={[0, scaleMax]} hide />
+            <Tooltip content={() => null} cursor={false} />
+            <Area
+              type="natural"
+              dataKey="torque"
+              stroke="#ff1f3d"
+              fill="url(#torqueFill)"
+              strokeWidth={2.4}
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Area
+              type="natural"
+              dataKey="power"
+              stroke="#31b8ff"
+              fill="url(#powerFill)"
+              strokeWidth={2.4}
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
       <div className="graph-axis x-axis">
         <span>-9s</span>
         <span>-6s</span>

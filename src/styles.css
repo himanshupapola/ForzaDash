@@ -414,7 +414,16 @@ h3 {
   min-height: 0;
   align-self: stretch;
   padding: 0;
-  background: red;
+  background: transparent;
+  overflow: visible;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.navigation-spacer-card > .power-graph-card {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .telemetry-panel[aria-hidden="true"] {
@@ -1035,9 +1044,9 @@ h3 {
   object-fit: contain;
   transform: translateX(5%);
   z-index: 0;
-  opacity: 0.7;
+  opacity: 1;
   mix-blend-mode: screen;
-  filter: contrast(1.05) brightness(0.76) saturate(1.12);
+  filter: contrast(1.05) brightness(1) saturate(1.12);
   -webkit-mask-image:
     radial-gradient(ellipse at 49% 52%, #000 0 52%, rgba(0, 0, 0, 0.7) 63%, transparent 76%);
   mask-image:
@@ -2513,6 +2522,12 @@ h3 {
   white-space: nowrap;
 }
 
+.power-current > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .power-current small {
   color: #9ca8b2;
   font-size: 0.82em;
@@ -2520,11 +2535,13 @@ h3 {
 }
 
 .power-current-torque {
-  color: #ff3150;
-  text-shadow: 0 0 10px rgba(255, 49, 80, 0.28);
+  order: 2;
+  color: #ff1f3d;
+  text-shadow: 0 0 10px rgba(255, 31, 61, 0.34);
 }
 
 .power-current-hp {
+  order: 1;
   color: #31b8ff;
   text-shadow: 0 0 10px rgba(49, 184, 255, 0.28);
 }
@@ -2562,70 +2579,50 @@ h3 {
   height: 100%;
   min-height: 78px;
   justify-self: center;
-  overflow: visible;
+  position: relative;
+  overflow: hidden;
   background: rgba(255, 255, 255, 0.018);
-  border-left: 1px solid rgba(146, 169, 190, 0.14);
+  border-left: 0;
   border-bottom: 1px solid rgba(146, 169, 190, 0.14);
 }
 
-.graph-grid line {
-  stroke: rgba(92, 145, 170, 0.12);
-  stroke-width: 0.38;
-  vector-effect: non-scaling-stroke;
+.power-graph::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  width: 1px;
+  background: rgba(146, 169, 190, 0.22);
+  pointer-events: none;
 }
 
-.live-area {
-  stroke: none;
-  opacity: 0.24;
+.power-graph .recharts-responsive-container {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 3%,
+    #000 86%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 3%,
+    #000 86%,
+    transparent 100%
+  );
 }
 
-.torque-area {
-  fill: rgba(126, 43, 255, 0.22);
+.power-graph .recharts-wrapper,
+.power-graph .recharts-surface {
+  overflow: visible;
 }
 
-.power-area {
-  fill: rgba(255, 38, 86, 0.24);
-}
-
-.torque-line,
-.power-line {
-  fill: none;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.torque-line {
-  stroke: #8f3bff;
-}
-
-.power-line {
-  stroke: #ff2456;
-}
-
-.curve-shadow {
-  opacity: 0.22;
-  stroke-width: 1.15;
-}
-
-.active-curve {
-  stroke-width: 2.2;
-}
-
-.torque-line.active-curve {
-  filter: none;
-}
-
-.power-line.active-curve {
-  filter: none;
-}
-
-.rpm-marker {
-  stroke: rgba(230, 244, 255, 0.32);
-  stroke-width: 0.8;
-  stroke-dasharray: 3 4;
-  vector-effect: non-scaling-stroke;
+.power-graph .recharts-area-curve {
+  filter: drop-shadow(0 0 5px rgba(37, 200, 255, 0.12));
+  transition: stroke-width 140ms ease;
 }
 
 .graph-axis {
