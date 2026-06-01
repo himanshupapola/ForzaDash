@@ -1428,6 +1428,7 @@ function App() {
             gear={gear}
             speedUnit={settings.speedUnit}
           />
+          <section className="glass-panel navigation-spacer-card" aria-hidden="true" />
           <NavigationSection telemetry={mapTelemetry} online={online} />
         </aside>
         <CenterDial

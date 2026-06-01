@@ -382,16 +382,39 @@ h3 {
 }
 
 .left-stack {
+  --navigation-top-clearance: clamp(46px, 6vh, 72px);
+  --navigation-bottom-clearance: calc(var(--hud-bottom-row) * 0.1);
+  --navigation-panel-width: min(
+    100%,
+    calc((100vw - (var(--hud-padding) * 2) - (var(--hud-gap) * 2)) * 0.35)
+  );
   position: relative;
   z-index: 2;
-  display: block;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: var(--hud-gap);
   margin-right: clamp(38px, 4.5vw, 64px);
+  padding-top: var(--navigation-top-clearance);
+  padding-bottom: var(--navigation-bottom-clearance);
   height: 100%;
   min-height: 0;
   align-self: stretch;
   align-content: start;
   overflow: visible;
+}
+
+.navigation-spacer-card {
+  position: relative;
+  z-index: 4;
+  left: 0;
+  top: auto;
+  bottom: auto;
+  width: 105.5% !important;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+  padding: 0;
+  background: red;
 }
 
 .telemetry-panel[aria-hidden="true"] {
@@ -2884,8 +2907,20 @@ h3 {
 
   .left-stack {
     margin-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
     overflow: visible;
     grid-template-rows: auto auto;
+  }
+
+  .navigation-spacer-card {
+    position: relative;
+    left: auto;
+    top: auto;
+    bottom: auto;
+    width: 100%;
+    height: clamp(72px, 20vw, 112px);
+    margin: var(--hud-gap) 0;
   }
 
   .dial-wrap {

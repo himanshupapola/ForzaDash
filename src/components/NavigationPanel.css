@@ -1,9 +1,9 @@
 .live-map-panel {
-  position: absolute;
+  position: relative;
   z-index: 3;
   left: 0;
-  bottom: calc(var(--hud-bottom-row) * 0.1);
-  width: calc((100vw - (var(--hud-padding) * 2) - (var(--hud-gap) * 2)) * 0.26);
+  width: 105.5% !important;
+  bottom: auto;
   height: clamp(212px, 29vh, 306px);
   min-height: 0;
   overflow: hidden;
