@@ -409,7 +409,7 @@ h3 {
   left: 0;
   top: auto;
   bottom: auto;
-  width: 105.5% !important;
+  width: 100%;
   height: 100%;
   min-height: 0;
   align-self: stretch;
@@ -664,7 +664,11 @@ h3 {
   overflow: hidden;
   padding: clamp(14px, 1.05vw, 20px) clamp(18px, 1.35vw, 26px);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(
+      calc(clamp(88px, 10vh, 122px) + var(--right-power-height-shift)),
+      1fr
+    )
+    minmax(0, 0.9fr);
   align-content: stretch;
   background: linear-gradient(145deg, rgba(1, 9, 14, 0.96), rgba(0, 4, 8, 0.98));
 }
@@ -1434,35 +1438,147 @@ h3 {
 }
 
 .right-stack {
+  --right-stack-clearance: calc(clamp(32px, 4.2vh, 58px) + 10px);
+  --right-panel-width-shift: clamp(44px, calc(3.2vw + 2px), 70px);
+  --right-power-height-shift: 0px;
   display: grid;
-  position: absolute;
-  z-index: 4;
-  right: 0;
-  bottom: calc(var(--hud-bottom-row) * 0.18);
-  grid-template-rows: minmax(0, 1fr);
+  position: relative;
+  z-index: 2;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  grid-template-rows: minmax(
+      calc(clamp(88px, 10vh, 122px) + var(--right-power-height-shift)),
+      1.5fr
+    )
+    minmax(0, 3fr);
   gap: var(--hud-gap);
-  align-items: start;
-  align-content: start;
+  align-items: stretch;
+  align-content: stretch;
   min-height: 0;
-  width: calc((100% - (var(--hud-gap) * 2)) * 0.35);
-  justify-self: end;
-  align-self: auto;
+  width: 100%;
+  justify-self: stretch;
+  align-self: stretch;
   margin-bottom: 0;
-  height: auto;
+  height: 100%;
+  max-height: calc(100% - var(--right-stack-clearance));
+  padding-top: var(--right-stack-clearance);
   overflow: visible;
+}
+
+.right-power-panel {
+  width: calc(100% + var(--right-panel-width-shift));
+  justify-self: end;
+  align-self: stretch;
+  height: 100%;
+  min-height: calc(clamp(88px, 10vh, 122px) + var(--right-power-height-shift));
+  padding: clamp(11px, 0.85vw, 15px) clamp(14px, 1.2vw, 22px);
+  border-radius: 8px 8px 0 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(8px, 0.75vh, 12px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 90% 40%, rgba(255, 18, 52, 0.1), transparent 34%),
+    linear-gradient(145deg, rgba(1, 9, 14, 0.96), rgba(0, 4, 8, 0.98));
+}
+
+.right-power-panel h3 {
+  margin: 0;
+  text-align: left;
+  color: #aab6bf;
+  font-size: clamp(13px, 0.9vw, 17px);
+  letter-spacing: 0.03em;
+}
+
+.right-power-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(8px, 0.75vw, 14px);
+  min-width: 0;
+}
+
+.right-power-stat {
+  --metric-color: #31b8ff;
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: clamp(5px, 0.45vh, 8px);
+  padding: clamp(8px, 0.75vw, 12px);
+  border: 1px solid rgba(61, 199, 255, 0.075);
+  border-radius: 6px;
+  background: rgba(0, 6, 10, 0.42);
+  font-family: Rajdhani, sans-serif;
+}
+
+.right-power-stat.torque {
+  --metric-color: #ff1234;
+}
+
+.right-power-stat span {
+  color: #87939d;
+  font-size: clamp(10px, 0.72vw, 13px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.right-power-stat strong {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--metric-color);
+  font-size: clamp(24px, 1.9vw, 37px);
+  font-weight: 700;
+  line-height: 0.9;
+  white-space: nowrap;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--metric-color) 38%, transparent);
+}
+
+.right-power-stat small {
+  color: #9ca8b2;
+  font-size: 0.42em;
+  font-weight: 800;
+}
+
+.right-power-stat i {
+  display: block;
+  width: 100%;
+  height: clamp(5px, 0.55vh, 8px);
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--metric-color) var(--metric-fill),
+    rgba(95, 119, 132, 0.2) var(--metric-fill)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--metric-color) 22%, transparent);
 }
 
 .music-panel {
   padding: clamp(18px, 1.35vw, 26px) clamp(24px, 1.85vw, 36px);
+  padding-bottom: calc(clamp(18px, 1.35vw, 26px) + 2px);
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
-  border-radius: 8px 8px 0 0;
+  max-height: 100%;
+  border-radius: 0;
   overflow: hidden;
   display: grid;
   grid-template-rows: auto auto auto auto;
   align-content: start;
   background: linear-gradient(145deg, rgba(1, 9, 14, 0.96), rgba(0, 4, 8, 0.98));
+}
+
+.right-stack > .music-panel {
+  width: calc(100% + var(--right-panel-width-shift));
+  justify-self: end;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  align-content: stretch;
+}
+
+.right-stack > .music-panel .track-row {
+  align-self: start;
+  margin-top: clamp(10px, 1.8vh, 24px);
 }
 
 .telemetry-panel > .music-panel {
@@ -2536,8 +2652,8 @@ h3 {
 
 .power-current-torque {
   order: 2;
-  color: #ff1f3d;
-  text-shadow: 0 0 10px rgba(255, 31, 61, 0.34);
+  color: #ff1234;
+  text-shadow: 0 0 10px rgba(255, 18, 52, 0.4);
 }
 
 .power-current-hp {
@@ -2712,6 +2828,7 @@ h3 {
 
   .music-panel {
     padding: 14px 18px;
+    padding-bottom: 16px;
   }
 
   .track-row {
@@ -2811,13 +2928,106 @@ h3 {
 
   .right-stack {
     grid-area: right;
-    position: absolute;
-    right: 0;
-    bottom: calc(var(--hud-bottom-row) * 0.18);
+    position: relative;
+    right: auto;
+    top: auto;
+    bottom: auto;
     grid-template-columns: 1fr;
-    grid-template-rows: auto;
+    grid-template-rows: minmax(
+        calc(clamp(88px, 10vh, 122px) + var(--right-power-height-shift)),
+        1fr
+      )
+      minmax(0, 3fr);
   }
 
+}
+
+@media (max-width: 1500px) and (min-width: 821px), (max-height: 860px) and (min-width: 821px) {
+  .right-stack {
+    --right-stack-clearance: calc(clamp(24px, 3.2vh, 42px) + 10px);
+    --right-power-height-shift: 0px;
+    grid-template-rows: minmax(
+        calc(clamp(72px, 8vh, 98px) + var(--right-power-height-shift)),
+        1fr
+      )
+      minmax(0, 3fr);
+    gap: clamp(4px, 0.45vh, 7px);
+  }
+
+  .right-power-panel {
+    min-height: calc(clamp(72px, 8vh, 98px) + var(--right-power-height-shift));
+    padding: clamp(8px, 0.75vw, 12px) clamp(12px, 1vw, 18px);
+    gap: clamp(5px, 0.55vh, 8px);
+  }
+
+  .right-power-panel h3 {
+    font-size: clamp(11px, 0.78vw, 14px);
+  }
+
+  .right-power-grid {
+    gap: clamp(6px, 0.55vw, 10px);
+  }
+
+  .right-power-stat {
+    padding: clamp(6px, 0.6vw, 9px);
+    gap: clamp(3px, 0.38vh, 6px);
+  }
+
+  .right-power-stat span {
+    font-size: clamp(9px, 0.62vw, 11px);
+  }
+
+  .right-power-stat strong {
+    font-size: clamp(20px, 1.65vw, 31px);
+  }
+
+  .right-power-stat i {
+    height: clamp(4px, 0.45vh, 6px);
+  }
+
+  .music-panel {
+    padding: clamp(10px, 0.95vw, 16px) clamp(14px, 1.2vw, 22px);
+    padding-bottom: calc(clamp(10px, 0.95vw, 16px) + 2px);
+  }
+
+  .music-panel .panel-title {
+    padding-bottom: clamp(6px, 0.7vh, 9px);
+  }
+
+  .music-panel .track-row {
+    grid-template-columns: clamp(72px, 6.6vw, 108px) minmax(0, 1fr) clamp(20px, 1.2vw, 24px);
+    gap: clamp(10px, 1vw, 16px);
+    padding-block: clamp(8px, 0.95vh, 13px);
+  }
+
+  .music-panel .album-art {
+    min-height: clamp(72px, 6.6vw, 108px);
+  }
+
+  .music-panel .track-row strong {
+    font-size: clamp(18px, 1.45vw, 27px);
+  }
+
+  .music-panel .track-row span,
+  .music-panel .track-row em,
+  .music-panel .track-row .spotify-status {
+    font-size: clamp(12px, 0.78vw, 15px);
+  }
+
+  .music-panel .progress-wrap {
+    margin-top: clamp(8px, 1vh, 13px);
+  }
+
+  .music-panel .music-controls {
+    min-height: clamp(48px, 6.8vh, 72px);
+    padding-top: clamp(7px, 1vh, 12px);
+    gap: clamp(16px, 1.8vw, 32px);
+  }
+
+  .music-panel .music-controls .primary-control {
+    width: clamp(40px, 2.9vw, 50px);
+    height: clamp(40px, 2.9vw, 50px);
+  }
 }
 
 @media (max-width: 820px) {
@@ -2900,6 +3110,13 @@ h3 {
     right: auto;
     bottom: auto;
     width: 100%;
+  }
+
+  .right-stack {
+    padding-top: 0;
+    max-height: none;
+    --right-panel-width-shift: 0px;
+    --right-power-height-shift: 0px;
   }
 
   .left-stack {
@@ -2985,6 +3202,7 @@ h3 {
 
   .music-panel {
     grid-template-rows: auto auto auto auto;
+    padding-bottom: calc(clamp(18px, 1.35vw, 26px) + 2px);
   }
 
   .track-row {
@@ -3111,6 +3329,75 @@ h3 {
 
   .main-grid {
     min-height: 0;
+  }
+
+  .right-stack {
+    gap: 4px;
+  }
+
+  .right-power-panel {
+    min-height: 80px;
+    padding: 7px 12px;
+    gap: 5px;
+  }
+
+  .right-power-panel h3 {
+    font-size: 11px;
+  }
+
+  .right-power-grid {
+    gap: 6px;
+  }
+
+  .right-power-stat {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .right-power-stat span {
+    font-size: 9px;
+  }
+
+  .right-power-stat strong {
+    font-size: clamp(20px, 1.65vw, 30px);
+  }
+
+  .right-power-stat i {
+    height: 4px;
+  }
+
+  .music-panel {
+    padding: 10px 14px;
+    padding-bottom: 12px;
+    grid-template-rows: auto auto auto auto;
+  }
+
+  .music-panel .panel-title {
+    padding-bottom: 7px;
+  }
+
+  .music-panel .track-row {
+    grid-template-columns: clamp(70px, 6.2vw, 96px) minmax(0, 1fr) 24px;
+    gap: 12px;
+    padding-block: 10px;
+  }
+
+  .music-panel .album-art {
+    min-height: clamp(70px, 6.2vw, 96px);
+  }
+
+  .music-panel .track-info strong {
+    font-size: clamp(18px, 1.45vw, 27px);
+  }
+
+  .music-controls {
+    min-height: 52px;
+    padding-top: 8px;
+    gap: clamp(18px, 2vw, 32px);
+  }
+
+  .progress {
+    margin-top: 8px;
   }
 
   .system-card {

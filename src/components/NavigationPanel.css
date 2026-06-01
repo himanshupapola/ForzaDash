@@ -2,7 +2,7 @@
   position: relative;
   z-index: 3;
   left: 0;
-  width: 105.5% !important;
+  width: 100%;
   bottom: auto;
   height: clamp(212px, 29vh, 306px);
   min-height: 0;

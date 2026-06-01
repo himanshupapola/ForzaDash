@@ -1458,6 +1458,7 @@ function App() {
           hardwareTemperature={hardwareTemperature}
         />
         <aside className="right-stack">
+          <PowerTorquePanel telemetry={smoothTelemetry} />
           <MusicPanel onOpenSettings={openSettings} />
         </aside>
       </section>
@@ -2047,6 +2048,37 @@ const CenterDial = React.memo(function CenterDial({
               <span>DRIFT ANGLE</span>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+});
+
+const PowerTorquePanel = React.memo(function PowerTorquePanel({ telemetry }) {
+  const power = Math.max(0, Math.round(telemetry.powerHp || 0));
+  const torque = Math.max(0, Math.round(telemetry.torqueNm || 0));
+  const powerRatio = clamp(power / 820, 0, 1);
+  const torqueRatio = clamp(torque / 720, 0, 1);
+
+  return (
+    <section className="glass-panel right-power-panel" aria-label="Power and torque">
+      <h3>POWER & TORQUE</h3>
+      <div className="right-power-grid">
+        <div className="right-power-stat power">
+          <span>POWER</span>
+          <strong>
+            {power}
+            <small>HP</small>
+          </strong>
+          <i style={{ "--metric-fill": `${powerRatio * 100}%` }} />
+        </div>
+        <div className="right-power-stat torque">
+          <span>TORQUE</span>
+          <strong>
+            {torque}
+            <small>NM</small>
+          </strong>
+          <i style={{ "--metric-fill": `${torqueRatio * 100}%` }} />
         </div>
       </div>
     </section>
@@ -3187,8 +3219,8 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
           >
             <defs>
               <linearGradient id="torqueFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ff1f3d" stopOpacity={0.42} />
-                <stop offset="92%" stopColor="#ff1f3d" stopOpacity={0.035} />
+                <stop offset="0%" stopColor="#ff1234" stopOpacity={0.5} />
+                <stop offset="92%" stopColor="#ff1234" stopOpacity={0.06} />
               </linearGradient>
               <linearGradient id="powerFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#31b8ff" stopOpacity={0.34} />
@@ -3212,7 +3244,7 @@ const PowerGraph = React.memo(function PowerGraph({ telemetry }) {
             <Area
               type="natural"
               dataKey="torque"
-              stroke="#ff1f3d"
+              stroke="#ff1234"
               fill="url(#torqueFill)"
               strokeWidth={2.4}
               dot={false}
