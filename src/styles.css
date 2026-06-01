@@ -100,6 +100,40 @@ button:focus-visible,
   animation: control-edge-flash 320ms steps(2, end) infinite;
 }
 
+.fullscreen-toast {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(18px, 3vh, 34px);
+  z-index: 95;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 11px 16px;
+  border: 1px solid rgba(37, 200, 255, 0.28);
+  border-radius: 6px;
+  color: #eaf4fa;
+  font-family: Rajdhani, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  background:
+    linear-gradient(135deg, rgba(37, 200, 255, 0.13), transparent 48%),
+    rgba(0, 7, 12, 0.9);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.46),
+    inset 0 0 18px rgba(37, 200, 255, 0.05);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 16px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.fullscreen-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 @keyframes control-edge-flash {
   0%,
   100% {
@@ -1953,9 +1987,7 @@ h3 {
   border-left: 1px solid rgba(37, 200, 255, 0.11);
   border-top: 1px solid rgba(37, 200, 255, 0.09);
   overflow: hidden;
-  background:
-    radial-gradient(circle at 32% 58%, rgba(37, 200, 255, 0.055), transparent 38%),
-    linear-gradient(145deg, rgba(0, 8, 13, 0.18), rgba(0, 3, 6, 0.42));
+  background: linear-gradient(145deg, rgba(0, 8, 13, 0.12), rgba(0, 3, 6, 0.36));
 }
 
 .race-timing-tile:nth-child(3n + 1) {
@@ -2128,6 +2160,107 @@ h3 {
   cursor: default;
 }
 
+.settings-grid .settings-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid rgba(43, 192, 255, 0.12);
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(37, 200, 255, 0.055), transparent 38%),
+    rgba(0, 7, 12, 0.58);
+  cursor: pointer;
+}
+
+.settings-grid .settings-toggle:has(input:checked) {
+  border-color: rgba(37, 200, 255, 0.34);
+  background:
+    linear-gradient(135deg, rgba(37, 200, 255, 0.12), transparent 44%),
+    rgba(0, 10, 16, 0.76);
+  box-shadow: inset 0 0 18px rgba(37, 200, 255, 0.045);
+}
+
+.settings-grid .settings-toggle:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-grid .settings-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-grid .settings-toggle span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-grid .settings-toggle strong {
+  color: #dceaf4;
+  font-family: Rajdhani, sans-serif;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.settings-grid .settings-toggle em {
+  overflow: hidden;
+  color: #8e99a3;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-grid .settings-toggle i {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border: 1px solid rgba(142, 153, 163, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.26);
+}
+
+.settings-grid .settings-toggle i::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #9aa6ae;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.34);
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.settings-grid .settings-toggle input:checked + span + i {
+  border-color: rgba(37, 200, 255, 0.48);
+  background: rgba(37, 200, 255, 0.16);
+}
+
+.settings-grid .settings-toggle input:checked + span + i::before {
+  background: #25c8ff;
+  box-shadow:
+    0 0 10px rgba(37, 200, 255, 0.54),
+    0 2px 8px rgba(0, 0, 0, 0.34);
+  transform: translateX(20px);
+}
+
+.settings-grid .settings-toggle:focus-within {
+  border-color: rgba(37, 200, 255, 0.5);
+}
+
 .settings-note {
   margin: 0 0 16px;
 }
@@ -2176,14 +2309,14 @@ h3 {
 .track-row {
   margin-top: 0;
   display: grid;
-  grid-template-columns: clamp(118px, 8.3vw, 152px) minmax(0, 1fr);
-  gap: clamp(18px, 1.45vw, 28px);
+  grid-template-columns: clamp(132px, 9vw, 166px) minmax(0, 1fr);
+  gap: clamp(22px, 1.8vw, 34px);
   align-items: center;
   align-self: center;
   justify-self: center;
-  width: min(100%, 620px);
+  width: min(100%, 660px);
   min-height: 0;
-  transform: translateY(1%);
+  transform: translateY(3%);
 }
 
 
@@ -2205,7 +2338,7 @@ h3 {
 .album-art {
   aspect-ratio: 1;
   height: auto;
-  min-height: clamp(118px, 8.3vw, 152px);
+  min-height: clamp(132px, 9vw, 166px);
   border-radius: 8px;
   padding: 8px;
   font-family: Rajdhani, sans-serif;
@@ -2223,15 +2356,15 @@ h3 {
 
 .track-copy {
   min-width: 0;
-  text-align: center;
+  text-align: left;
 }
 
 .track-row strong {
   display: block;
   color: white;
-  font-size: clamp(24px, 1.58vw, 32px);
+  font-size: clamp(27px, 1.78vw, 36px);
   line-height: 1.05;
-  margin-bottom: clamp(5px, 0.55vh, 8px);
+  margin-bottom: clamp(7px, 0.7vh, 10px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2243,7 +2376,7 @@ h3 {
   display: block;
   color: #8e99a3;
   font-style: normal;
-  font-size: clamp(14px, 0.92vw, 18px);
+  font-size: clamp(18px, 1.16vw, 23px);
   margin-top: clamp(4px, 0.5vh, 7px);
   white-space: nowrap;
   overflow: hidden;
@@ -2256,7 +2389,7 @@ h3 {
 }
 
 .progress-wrap {
-  margin: clamp(14px, 1.7vh, 22px) 0 0;
+  margin: clamp(10px, 1.35vh, 18px) 0 0;
 }
 
 .progress {
@@ -2338,8 +2471,8 @@ h3 {
 
 
 .music-controls {
-  min-height: clamp(68px, 9vh, 104px);
-  padding-top: clamp(14px, 1.8vh, 22px);
+  min-height: clamp(58px, 7.6vh, 88px);
+  padding-top: clamp(10px, 1.35vh, 18px);
   padding-bottom: clamp(4px, 0.8vh, 12px);
   display: flex;
   justify-content: center;
@@ -2466,22 +2599,23 @@ h3 {
 .youtube-volume-popover {
   position: absolute;
   bottom: calc(100% + 14px);
-  right: -12px;
-  width: clamp(62px, 4.4vw, 76px);
-  padding: 10px 8px;
+  left: 50%;
+  width: clamp(132px, 8vw, 152px);
+  min-height: 182px;
+  padding: 12px 10px;
   display: grid;
+  grid-template-rows: auto 1fr;
   justify-items: center;
-  gap: 10px;
-  border-radius: 12px;
+  gap: 11px;
+  border-radius: 8px;
   border: 1px solid rgba(35, 151, 205, 0.16);
-  background: linear-gradient(
-    145deg,
-    rgba(2, 8, 12, 0.96),
-    rgba(0, 4, 7, 0.9)
-  );
+  background:
+    linear-gradient(180deg, rgba(37, 200, 255, 0.06), transparent 42%),
+    rgba(0, 6, 10, 0.96);
   box-shadow:
-    inset 0 0 24px rgba(21, 121, 180, 0.08),
-    0 10px 26px rgba(0, 0, 0, 0.4);
+    inset 0 0 22px rgba(21, 121, 180, 0.08),
+    0 16px 36px rgba(0, 0, 0, 0.48);
+  transform: translateX(-50%);
   z-index: 8;
 }
 
@@ -2489,30 +2623,107 @@ h3 {
   content: "";
   position: absolute;
   bottom: -6px;
-  right: 16px;
+  left: 50%;
   width: 12px;
   height: 12px;
   border-right: 1px solid rgba(35, 151, 205, 0.16);
   border-bottom: 1px solid rgba(35, 151, 205, 0.16);
-  background: rgba(2, 8, 12, 0.96);
-  transform: rotate(45deg);
+  background: rgba(0, 6, 10, 0.96);
+  transform: translateX(-50%) rotate(45deg);
 }
 
-.youtube-volume-popover strong {
+.youtube-volume-readout {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.youtube-volume-readout strong {
   font-family: Rajdhani, sans-serif;
-  font-size: clamp(20px, 1.45vw, 26px);
+  font-size: clamp(22px, 1.55vw, 30px);
   line-height: 1;
   color: #dceaf4;
-  text-shadow: 0 0 10px rgba(220, 234, 244, 0.12);
+}
+
+.youtube-volume-readout span {
+  color: #8e99a3;
+  font-family: Rajdhani, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.youtube-volume-popover input[type="range"] {
+  width: 88px;
+  height: 14px;
+  align-self: center;
+  appearance: none;
+  background:
+    linear-gradient(
+      90deg,
+      #25c8ff var(--volume-fill),
+      rgba(95, 119, 132, 0.24) var(--volume-fill)
+    );
+  border-radius: 3px;
+  cursor: pointer;
+  outline: none;
+  transform: rotate(-90deg);
+  -webkit-mask-image: repeating-linear-gradient(
+    90deg,
+    #000 0 5px,
+    transparent 5px 9px
+  );
+  mask-image: repeating-linear-gradient(
+    90deg,
+    #000 0 5px,
+    transparent 5px 9px
+  );
+}
+
+.youtube-volume-popover input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #061017;
+  border-radius: 50%;
+  background: #f1f8fc;
+  box-shadow:
+    0 0 0 1px rgba(37, 200, 255, 0.56),
+    0 0 14px rgba(37, 200, 255, 0.34);
+}
+
+.youtube-volume-popover input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #061017;
+  border-radius: 50%;
+  background: #f1f8fc;
+  box-shadow:
+    0 0 0 1px rgba(37, 200, 255, 0.56),
+    0 0 14px rgba(37, 200, 255, 0.34);
+}
+
+.youtube-volume-steps {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  display: grid;
+  grid-template-columns: repeat(2, 28px);
+  gap: 48px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .youtube-volume-popover button {
-  width: clamp(30px, 2.2vw, 36px);
-  height: clamp(30px, 2.2vw, 36px);
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
   color: #c5d1db;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.045);
+  pointer-events: auto;
   transition:
     color 120ms ease,
     border-color 120ms ease,
@@ -2528,8 +2739,8 @@ h3 {
 }
 
 .youtube-volume-popover button svg {
-  width: clamp(18px, 1.25vw, 22px);
-  height: clamp(18px, 1.25vw, 22px);
+  width: 16px;
+  height: 16px;
 }
 
 
@@ -3315,24 +3526,25 @@ h3 {
   }
 
   .right-stack > .music-panel .track-row {
-    grid-template-columns: clamp(98px, 7.4vw, 132px) minmax(0, 1fr);
-    width: min(100%, clamp(260px, 25vw, 400px));
+    grid-template-columns: clamp(112px, 8.2vw, 142px) minmax(0, 1fr);
+    width: min(100%, clamp(330px, 29vw, 460px));
+    gap: clamp(14px, 1.25vw, 22px);
     align-self: center;
     margin-top: 0;
   }
 
   .right-stack > .music-panel .album-art {
-    min-height: clamp(98px, 7.4vw, 132px);
+    min-height: clamp(112px, 8.2vw, 142px);
   }
 
   .right-stack > .music-panel .track-row strong {
-    font-size: clamp(18px, 1.28vw, 25px);
+    font-size: clamp(22px, 1.55vw, 30px);
   }
 
   .right-stack > .music-panel .track-row span,
   .right-stack > .music-panel .track-row em,
   .right-stack > .music-panel .track-row .spotify-status {
-    font-size: clamp(10px, 0.7vw, 13px);
+    font-size: clamp(14px, 0.95vw, 18px);
   }
 
   .right-stack > .music-panel .progress-wrap {

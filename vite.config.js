@@ -15,6 +15,16 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       outDir: "dist/app",
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (id.includes("recharts")) return "charts";
+            if (id.includes("lucide-react")) return "icons";
+            return "vendor";
+          },
+        },
+      },
     },
     server: {
       host: "127.0.0.1",

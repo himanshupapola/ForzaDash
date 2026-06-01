@@ -1278,6 +1278,7 @@ function useUpdateInfo() {
 function App() {
   const settings = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showFullscreenToast, setShowFullscreenToast] = useState(false);
   const [telemetry, setTelemetry] = useState(fallbackTelemetry);
   const [lastPacketAt, setLastPacketAt] = useState(0);
   const [telemetryServerOnline, setTelemetryServerOnline] = useState(
@@ -1289,8 +1290,50 @@ function App() {
   const clock = useClock();
   const demoFrameRef = useRef(0);
   const lastLiveTelemetryRef = useRef(null);
+  const fullscreenToastTimerRef = useRef(0);
+  const wasFullscreenRef = useRef(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  function isAppFullscreen() {
+    if (document.fullscreenElement) return true;
+    return (
+      Math.abs(window.innerWidth - window.screen.width) <= 2 &&
+      Math.abs(window.innerHeight - window.screen.height) <= 2
+    );
+  }
+
+  function showWindowedHint() {
+    window.clearTimeout(fullscreenToastTimerRef.current);
+    setShowFullscreenToast(true);
+    fullscreenToastTimerRef.current = window.setTimeout(() => {
+      setShowFullscreenToast(false);
+    }, 4200);
+  }
+
+  useEffect(() => {
+    function updateFullscreenHint() {
+      const fullscreen = isAppFullscreen();
+      if (fullscreen) {
+        window.clearTimeout(fullscreenToastTimerRef.current);
+        setShowFullscreenToast(false);
+      } else if (!wasFullscreenRef.current) {
+        showWindowedHint();
+      } else {
+        showWindowedHint();
+      }
+      wasFullscreenRef.current = fullscreen;
+    }
+
+    updateFullscreenHint();
+    window.addEventListener("resize", updateFullscreenHint);
+    document.addEventListener("fullscreenchange", updateFullscreenHint);
+    return () => {
+      window.clearTimeout(fullscreenToastTimerRef.current);
+      window.removeEventListener("resize", updateFullscreenHint);
+      document.removeEventListener("fullscreenchange", updateFullscreenHint);
+    };
+  }, []);
 
   useEffect(() => {
     function toggleBrowserFullscreen() {
@@ -1456,6 +1499,13 @@ function App() {
         </aside>
       </section>
       <BottomSystems telemetry={smoothTelemetry} />
+      <div
+        className={`fullscreen-toast ${showFullscreenToast ? "visible" : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        App best viewed in fullscreen. Double-click to go fullscreen.
+      </div>
       {settingsOpen && (
         <SettingsModal
           onClose={closeSettings}
@@ -2530,7 +2580,6 @@ const MusicPanel = React.memo(function MusicPanel({
         <div className="track-copy">
           <strong>{title}</strong>
           <span>{artist}</span>
-          {!isYouTube && <em className="spotify-status">{providerStatus}</em>}
         </div>
       </div>
       <div className="progress-wrap">
@@ -2575,22 +2624,43 @@ const MusicPanel = React.memo(function MusicPanel({
               {youtubeMuted || youtubeVolume === 0 ? <VolumeX /> : <Volume2 />}
             </button>
             {volumeOpen && (
-              <div className="youtube-volume-popover">
-                <button
-                  type="button"
-                  aria-label="Raise YouTube Music volume"
-                  onClick={() => setYouTubeVolume(youtubeVolume + 10, false)}
-                >
-                  <Plus />
-                </button>
-                <strong>{youtubeMuted ? 0 : youtubeVolume}%</strong>
-                <button
-                  type="button"
-                  aria-label="Lower YouTube Music volume"
-                  onClick={() => setYouTubeVolume(youtubeVolume - 10, false)}
-                >
-                  <Minus />
-                </button>
+              <div
+                className="youtube-volume-popover"
+                style={{
+                  "--volume-fill": `${youtubeMuted ? 0 : youtubeVolume}%`,
+                }}
+              >
+                <div className="youtube-volume-readout">
+                  <strong>{youtubeMuted ? 0 : youtubeVolume}%</strong>
+                  <span>{youtubeMuted ? "MUTED" : "VOL"}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={youtubeMuted ? 0 : youtubeVolume}
+                  aria-label="YouTube Music volume level"
+                  onChange={(event) =>
+                    setYouTubeVolume(event.target.value, false)
+                  }
+                />
+                <div className="youtube-volume-steps">
+                  <button
+                    type="button"
+                    aria-label="Lower YouTube Music volume"
+                    onClick={() => setYouTubeVolume(youtubeVolume - 10, false)}
+                  >
+                    <Minus />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Raise YouTube Music volume"
+                    onClick={() => setYouTubeVolume(youtubeVolume + 10, false)}
+                  >
+                    <Plus />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2766,8 +2836,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
               }
             />
           </label>
-          <label>
-            <span>UDP Forwarding</span>
+          <label className="settings-toggle">
             <input
               type="checkbox"
               checked={Boolean(draft.udpForwardingEnabled)}
@@ -2775,6 +2844,11 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
                 updateField("udpForwardingEnabled", event.target.checked)
               }
             />
+            <span>
+              <strong>UDP Forwarding</strong>
+              <em>Mirror telemetry to forward ports</em>
+            </span>
+            <i aria-hidden="true" />
           </label>
           <label>
             <span>UDP Forward Port</span>
@@ -2808,8 +2882,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
               }
             />
           </label>
-          <label>
-            <span>Demo Drive Mode</span>
+          <label className="settings-toggle">
             <input
               type="checkbox"
               checked={Boolean(draft.demoDriveMode)}
@@ -2818,6 +2891,11 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
                 updateField("demoDriveMode", event.target.checked)
               }
             />
+            <span>
+              <strong>Demo Drive Mode</strong>
+              <em>{telemetryOnline ? "Disabled while telemetry is live" : "Animate the dash without game data"}</em>
+            </span>
+            <i aria-hidden="true" />
           </label>
           <label>
             <span>Speed Unit</span>
@@ -2839,8 +2917,7 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
               <option value="full">Full Quality</option>
             </select>
           </label>
-          <label>
-            <span>Flash Mode</span>
+          <label className="settings-toggle">
             <input
               type="checkbox"
               checked={Boolean(draft.flashMode)}
@@ -2848,6 +2925,11 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
                 updateField("flashMode", event.target.checked)
               }
             />
+            <span>
+              <strong>Flash Mode</strong>
+              <em>Pulse the screen when grip drops</em>
+            </span>
+            <i aria-hidden="true" />
           </label>
         </div>
         <p className="settings-note">
