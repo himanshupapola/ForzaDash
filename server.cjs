@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
+const parseForzaDataOut = require("forza-horizon/dist/parse").default;
 
 let HID = null;
 try {
@@ -351,126 +352,94 @@ function deriveFuelMetrics(telemetry) {
 function parseForzaPacket(data) {
   if (data.length < 324) return null;
   try {
-    let offset = 0;
-    const readInt = () => {
-      const value = data.readInt32LE(offset);
-      offset += 4;
-      return value;
-    };
-    const readUInt = () => {
-      const value = data.readUInt32LE(offset);
-      offset += 4;
-      return value;
-    };
-    const readFloat = () => {
-      const value = data.readFloatLE(offset);
-      offset += 4;
-      return value;
-    };
-    const readUInt16 = () => {
-      const value = data.readUInt16LE(offset);
-      offset += 2;
-      return value;
-    };
-    const readUInt8 = () => {
-      const value = data.readUInt8(offset);
-      offset += 1;
-      return value;
-    };
-    const readInt8 = () => {
-      const value = data.readInt8(offset);
-      offset += 1;
-      return value;
-    };
-
-    const isRaceOn = readInt();
-    const timestampMs = readUInt();
-    const engineMaxRpm = readFloat();
-    const engineIdleRpm = readFloat();
-    const currentEngineRpm = readFloat();
-    const accelerationX = readFloat();
-    const accelerationY = readFloat();
-    const accelerationZ = readFloat();
-    const velocityX = readFloat();
-    const velocityY = readFloat();
-    const velocityZ = readFloat();
-    const angularVelocityX = readFloat();
-    const angularVelocityY = readFloat();
-    const angularVelocityZ = readFloat();
-    const yaw = readFloat();
-    const pitch = readFloat();
-    const roll = readFloat();
-    const normalizedSuspensionTravelFrontLeft = readFloat();
-    const normalizedSuspensionTravelFrontRight = readFloat();
-    const normalizedSuspensionTravelRearLeft = readFloat();
-    const normalizedSuspensionTravelRearRight = readFloat();
-    const tireSlipRatioFrontLeft = readFloat();
-    const tireSlipRatioFrontRight = readFloat();
-    const tireSlipRatioRearLeft = readFloat();
-    const tireSlipRatioRearRight = readFloat();
-    const wheelRotationSpeedFrontLeft = readFloat();
-    const wheelRotationSpeedFrontRight = readFloat();
-    const wheelRotationSpeedRearLeft = readFloat();
-    const wheelRotationSpeedRearRight = readFloat();
-    const wheelOnRumbleStripFrontLeft = readInt();
-    const wheelOnRumbleStripFrontRight = readInt();
-    const wheelOnRumbleStripRearLeft = readInt();
-    const wheelOnRumbleStripRearRight = readInt();
-    const wheelInPuddleFrontLeft = readInt();
-    const wheelInPuddleFrontRight = readInt();
-    const wheelInPuddleRearLeft = readInt();
-    const wheelInPuddleRearRight = readInt();
-    const surfaceRumbleFrontLeft = readFloat();
-    const surfaceRumbleFrontRight = readFloat();
-    const surfaceRumbleRearLeft = readFloat();
-    const surfaceRumbleRearRight = readFloat();
-    const tireSlipAngleFrontLeft = readFloat();
-    const tireSlipAngleFrontRight = readFloat();
-    const tireSlipAngleRearLeft = readFloat();
-    const tireSlipAngleRearRight = readFloat();
-    const tireCombinedSlipFrontLeft = readFloat();
-    const tireCombinedSlipFrontRight = readFloat();
-    const tireCombinedSlipRearLeft = readFloat();
-    const tireCombinedSlipRearRight = readFloat();
-    const suspensionTravelMetersFrontLeft = readFloat();
-    const suspensionTravelMetersFrontRight = readFloat();
-    const suspensionTravelMetersRearLeft = readFloat();
-    const suspensionTravelMetersRearRight = readFloat();
-    const carOrdinal = readInt();
-    const carClass = readInt();
-    const carPerformanceIndex = readInt();
-    const drivetrainType = readInt();
-    const numCylinders = readInt();
-    const carGroup = readUInt();
-    const smashableVelDiff = readFloat();
-    const smashableMass = readFloat();
-    const positionX = readFloat();
-    const positionY = readFloat();
-    const positionZ = readFloat();
-    const speed = readFloat();
-    const power = readFloat();
-    const torque = readFloat();
-    const tireTempFrontLeft = readFloat();
-    const tireTempFrontRight = readFloat();
-    const tireTempRearLeft = readFloat();
-    const tireTempRearRight = readFloat();
-    const boostPsi = readFloat();
-    const fuel = readFloat();
-    const distanceTraveled = readFloat();
-    const bestLap = readFloat();
-    const lastLap = readFloat();
-    const currentLap = readFloat();
-    const currentRaceTime = readFloat();
-    const lapNumber = readUInt16();
-    const racePosition = readUInt8();
-    const accelInput = readUInt8();
-    const brakeInput = readUInt8();
-    const clutchInput = readUInt8();
-    const handBrake = readUInt8();
-    const gear = readUInt8();
-    const steer = readInt8();
-    const normalizedDrivingLine = readInt8();
-    const normalizedAIBrakeDifference = readInt8();
+    const parsed = parseForzaDataOut([...data]);
+    const {
+      IsRaceOn: isRaceOn,
+      TimestampMS: timestampMs,
+      EngineMaxRpm: engineMaxRpm,
+      EngineIdleRpm: engineIdleRpm,
+      CurrentEngineRpm: currentEngineRpm,
+      AccelerationX: accelerationX,
+      AccelerationY: accelerationY,
+      AccelerationZ: accelerationZ,
+      VelocityX: velocityX,
+      VelocityY: velocityY,
+      VelocityZ: velocityZ,
+      AngularVelocityX: angularVelocityX,
+      AngularVelocityY: angularVelocityY,
+      AngularVelocityZ: angularVelocityZ,
+      Yaw: yaw,
+      Pitch: pitch,
+      Roll: roll,
+      NormalizedSuspensionTravelFrontLeft: normalizedSuspensionTravelFrontLeft,
+      NormalizedSuspensionTravelFrontRight: normalizedSuspensionTravelFrontRight,
+      NormalizedSuspensionTravelRearLeft: normalizedSuspensionTravelRearLeft,
+      NormalizedSuspensionTravelRearRight: normalizedSuspensionTravelRearRight,
+      TireSlipRatioFrontLeft: tireSlipRatioFrontLeft,
+      TireSlipRatioFrontRight: tireSlipRatioFrontRight,
+      TireSlipRatioRearLeft: tireSlipRatioRearLeft,
+      TireSlipRatioRearRight: tireSlipRatioRearRight,
+      WheelRotationSpeedFrontLeft: wheelRotationSpeedFrontLeft,
+      WheelRotationSpeedFrontRight: wheelRotationSpeedFrontRight,
+      WheelRotationSpeedRearLeft: wheelRotationSpeedRearLeft,
+      WheelRotationSpeedRearRight: wheelRotationSpeedRearRight,
+      WheelOnRumbleStripFrontLeft: wheelOnRumbleStripFrontLeft,
+      WheelOnRumbleStripFrontRight: wheelOnRumbleStripFrontRight,
+      WheelOnRumbleStripRearLeft: wheelOnRumbleStripRearLeft,
+      WheelOnRumbleStripRearRight: wheelOnRumbleStripRearRight,
+      WheelInPuddleDepthFrontLeft: wheelInPuddleFrontLeft,
+      WheelInPuddleDepthFrontRight: wheelInPuddleFrontRight,
+      WheelInPuddleDepthRearLeft: wheelInPuddleRearLeft,
+      WheelInPuddleDepthRearRight: wheelInPuddleRearRight,
+      SurfaceRumbleFrontLeft: surfaceRumbleFrontLeft,
+      SurfaceRumbleFrontRight: surfaceRumbleFrontRight,
+      SurfaceRumbleRearLeft: surfaceRumbleRearLeft,
+      SurfaceRumbleRearRight: surfaceRumbleRearRight,
+      TireSlipAngleFrontLeft: tireSlipAngleFrontLeft,
+      TireSlipAngleFrontRight: tireSlipAngleFrontRight,
+      TireSlipAngleRearLeft: tireSlipAngleRearLeft,
+      TireSlipAngleRearRight: tireSlipAngleRearRight,
+      TireCombinedSlipFrontLeft: tireCombinedSlipFrontLeft,
+      TireCombinedSlipFrontRight: tireCombinedSlipFrontRight,
+      TireCombinedSlipRearLeft: tireCombinedSlipRearLeft,
+      TireCombinedSlipRearRight: tireCombinedSlipRearRight,
+      SuspensionTravelMetersFrontLeft: suspensionTravelMetersFrontLeft,
+      SuspensionTravelMetersFrontRight: suspensionTravelMetersFrontRight,
+      SuspensionTravelMetersRearLeft: suspensionTravelMetersRearLeft,
+      SuspensionTravelMetersRearRight: suspensionTravelMetersRearRight,
+      CarOrdinal: carOrdinal,
+      CarClass: carClass,
+      CarPerformanceIndex: carPerformanceIndex,
+      DrivetrainType: drivetrainType,
+      NumCylinders: numCylinders,
+      PositionX: positionX,
+      PositionY: positionY,
+      PositionZ: positionZ,
+      Speed: speed,
+      Power: power,
+      Torque: torque,
+      TireTempFrontLeft: tireTempFrontLeft,
+      TireTempFrontRight: tireTempFrontRight,
+      TireTempRearLeft: tireTempRearLeft,
+      TireTempRearRight: tireTempRearRight,
+      Boost: boostPsi,
+      Fuel: fuel,
+      DistanceTraveled: distanceTraveled,
+      BestLap: bestLap,
+      LastLap: lastLap,
+      CurrentLap: currentLap,
+      CurrentRaceTime: currentRaceTime,
+      LapNumber: lapNumber,
+      RacePosition: racePosition,
+      Accel: accelInput,
+      Brake: brakeInput,
+      Clutch: clutchInput,
+      HandBrake: handBrake,
+      Gear: gear,
+      Steer: steer,
+      NormalizedDrivingLine: normalizedDrivingLine,
+      NormalizedAIBrakeDifference: normalizedAIBrakeDifference,
+    } = parsed;
 
     return {
       timestamp: Date.now(),
@@ -542,9 +511,9 @@ function parseForzaPacket(data) {
       carPerformanceIndex,
       drivetrainType,
       numCylinders,
-      carGroup,
-      smashableVelDiff,
-      smashableMass,
+      carGroup: null,
+      smashableVelDiff: null,
+      smashableMass: null,
       positionX,
       positionY,
       positionZ,

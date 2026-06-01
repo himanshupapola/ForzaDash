@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import forzaLogo from "./assets/forza-logo.png";
 import carTopView from "./assets/car.png";
-import suspensionImage from "./assets/susp.png";
+import tiresSuspensionImage from "./assets/Tiers and Suspension.png";
 import spotifyLogo from "./assets/spotify.png";
 import {
   completeSpotifyLogin,
@@ -50,6 +50,7 @@ const fallbackTelemetry = {
   throttle: 0,
   brake: 0,
   clutch: 0,
+  handBrake: 0,
   steer: 0,
   accelerationX: 0,
   accelerationY: 0,
@@ -1576,144 +1577,11 @@ const TelemetryPanel = React.memo(function TelemetryPanel({
   gear,
   speedUnit,
 }) {
-  const { fuelRange } = getFuelInfo(telemetry);
-  const reverseGear = gear === "R";
-  const reportedDistance = getTelemetryValue(
-    telemetry,
-    ["distance", "distanceKm", "distance_km", "odometer"],
-    null,
-  );
-
-  const distanceRef = useRef(reportedDistance ?? 0);
-  const lastDistanceTimeRef = useRef(Date.now());
-  const fuelRef = useRef(60 + Math.random() * 20);
-  const now = Date.now();
-  const elapsedSeconds = clamp(
-    (now - lastDistanceTimeRef.current) / 1000,
-    0,
-    2,
-  );
-  lastDistanceTimeRef.current = now;
-
-  let displayDistance = distanceRef.current;
-  if (reportedDistance != null && Number.isFinite(reportedDistance)) {
-    displayDistance = reportedDistance;
-    distanceRef.current = reportedDistance;
-  } else {
-    const speedKmH = clamp(telemetry.speedKmh ?? 0, 0, 300);
-    displayDistance = distanceRef.current + (speedKmH / 3600) * elapsedSeconds;
-    distanceRef.current = displayDistance;
-  }
-
-  const speedKmH = clamp(telemetry.speedKmh ?? 0, 0, 300);
-  const distanceDelta = (speedKmH / 3600) * elapsedSeconds;
-  const fuelUsePerKm =
-    0.08 +
-    clamp(telemetry.throttle ?? 0, 0, 100) * 0.0014 +
-    clamp(telemetry.boostBar ?? 0, 0, 2) * 0.02;
-  fuelRef.current = fuelRef.current - distanceDelta * fuelUsePerKm;
-  if (fuelRef.current <= 10) {
-    fuelRef.current = 60 + Math.random() * 20;
-  }
-  const fuelPercent = clamp(fuelRef.current, 0, 100);
-  const fuelLiters = fuelPercent * 0.59;
-  const rangeOrDistanceLabel = fuelRange != null ? "RANGE" : "DISTANCE";
-  const rangeOrDistanceValue = fuelRange != null ? fuelRange : displayDistance;
-  const maxSpeedRef = useRef(0);
-  const currentSpeed = telemetry.speedKmh ?? 0;
-  if (currentSpeed < 1) {
-    maxSpeedRef.current = 0;
-  } else {
-    maxSpeedRef.current = Math.max(maxSpeedRef.current, currentSpeed);
-  }
-
-  return (
-    <section className="glass-panel telemetry-panel">
-      <h2>VEHICLE STATUS</h2>
-      <div className="hero-telemetry">
-        <div>
-          <span>GEAR</span>
-          <div className={`gear-hero-row ${reverseGear ? "is-reverse" : ""}`}>
-            <strong>{gear}</strong>
-          </div>
-          <em>MANUAL</em>
-        </div>
-        <div>
-          <MiniStat
-            label="SPEED"
-            value={number(toDisplaySpeed(telemetry.speedKmh, speedUnit))}
-            unit={speedUnitLabel(speedUnit)}
-            fill={clamp(toDisplaySpeed(telemetry.speedKmh, speedUnit) / 320, 0, 1)}
-          />
-          <MiniStat
-            label="RPM"
-            value={number(telemetry.rpm)}
-            fill={clamp((telemetry.rpm || 0) / Math.max(telemetry.maxRpm || 1, 1), 0, 1)}
-          />
-        </div>
-      </div>
-    </section>
-  );
+  return <section className="glass-panel telemetry-panel" aria-hidden="true" />;
 });
 
 const PowerStatsPanel = React.memo(function PowerStatsPanel({ telemetry }) {
-  const rows = [
-    {
-      label: "POWER",
-      value: number(telemetry.powerHp),
-      unit: "HP",
-      raw: telemetry.powerHp || 0,
-      max: 800,
-      fill: clamp((telemetry.powerHp || 0) / 800, 0, 1),
-      accent: "cyan",
-    },
-    {
-      label: "TORQUE",
-      value: number(Math.max(0, telemetry.torqueNm || 0)),
-      unit: "NM",
-      raw: Math.max(0, telemetry.torqueNm || 0),
-      max: 1000,
-      fill: clamp(Math.max(0, telemetry.torqueNm || 0) / 1000, 0, 1),
-      accent: "violet",
-    },
-    {
-      label: "BOOST",
-      value: number(Math.abs(telemetry.boostBar), 2),
-      unit: "BAR",
-      raw: Math.abs(telemetry.boostBar || 0),
-      max: 2,
-      fill: clamp(Math.abs(telemetry.boostBar || 0) / 2, 0, 1),
-      accent: "red",
-    },
-  ];
-
-  return (
-    <section className="glass-panel power-stats-panel">
-      <h2>POWER & TORQUE</h2>
-      <div className="power-telemetry-strip">
-        {rows.map(({ label, value, unit, fill, accent }) => (
-          <div
-            className={`performance-card ${accent}`}
-            key={label}
-            style={{
-              "--metric-fill": `${fill * 100}%`,
-            }}
-          >
-            <div className="performance-card-head">
-              <span>{label}</span>
-            </div>
-            <strong>
-              {value}
-              <em>{unit}</em>
-            </strong>
-            <div className="performance-meter" aria-hidden="true">
-              <i />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+  return <section className="glass-panel power-stats-panel" aria-hidden="true" />;
 });
 
 function MiniStat({ label, value, unit, fill = 0 }) {
@@ -1730,6 +1598,125 @@ function MiniStat({ label, value, unit, fill = 0 }) {
     </div>
   );
 }
+
+const GForceMeterCanvas = React.memo(function GForceMeterCanvas({
+  lateral = 0,
+  longitudinal = 0,
+}) {
+  const canvasRef = useRef(null);
+  const historyRef = useRef([]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssSize = 132;
+    canvas.width = cssSize * dpr;
+    canvas.height = cssSize * dpr;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const maxG = 2;
+    const gx = clamp(lateral, -maxG, maxG);
+    const gz = clamp(longitudinal, -maxG, maxG);
+    const history = historyRef.current;
+    history.push({ x: gx, z: gz });
+    if (history.length > 46) history.shift();
+
+    const size = cssSize;
+    const center = size / 2;
+    const scale = (size / 2 - 14) / maxG;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = "rgba(1, 8, 13, 0.52)";
+    ctx.beginPath();
+    ctx.arc(center, center, center - 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(120, 205, 255, 0.12)";
+    ctx.lineWidth = 1;
+    [0.5, 1, 1.5, 2].forEach((ring) => {
+      ctx.beginPath();
+      ctx.arc(center, center, ring * scale, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+
+    ctx.strokeStyle = "rgba(120, 205, 255, 0.16)";
+    ctx.beginPath();
+    ctx.moveTo(9, center);
+    ctx.lineTo(size - 9, center);
+    ctx.moveTo(center, 9);
+    ctx.lineTo(center, size - 9);
+    ctx.stroke();
+
+    if (history.length > 1) {
+      const drawThread = (width, alpha, blur) => {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = width;
+        ctx.shadowBlur = blur;
+        ctx.shadowColor = `rgba(24, 215, 255, ${alpha})`;
+        for (let index = 0; index < history.length - 1; index += 1) {
+          const point = history[index];
+          const next = history[index + 1];
+          const age = (index + 1) / history.length;
+          const opacity = Math.pow(age, 1.9) * alpha;
+          const x1 = center + point.x * scale;
+          const y1 = center - point.z * scale;
+          const x2 = center + next.x * scale;
+          const y2 = center - next.z * scale;
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
+          ctx.strokeStyle = `rgba(24, 215, 255, ${opacity})`;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.quadraticCurveTo(midX, midY, x2, y2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      };
+
+      drawThread(5, 0.18, 10);
+      drawThread(2.4, 0.72, 4);
+
+      for (let index = 0; index < history.length; index += 4) {
+        const point = history[index];
+        const age = (index + 1) / history.length;
+        const opacity = Math.pow(age, 2) * 0.28;
+        ctx.fillStyle = `rgba(24, 215, 255, ${opacity})`;
+        ctx.beginPath();
+        ctx.arc(center + point.x * scale, center - point.z * scale, 1.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    const dotX = center + gx * scale;
+    const dotY = center - gz * scale;
+    const glow = ctx.createRadialGradient(dotX, dotY, 1, dotX, dotY, 15);
+    glow.addColorStop(0, "rgba(255, 47, 98, 0.96)");
+    glow.addColorStop(0.34, "rgba(255, 47, 98, 0.38)");
+    glow.addColorStop(1, "rgba(255, 47, 98, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#ff2f62";
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+  }, [lateral, longitudinal]);
+
+  return <canvas ref={canvasRef} aria-hidden="true" />;
+});
 
 const CenterDial = React.memo(function CenterDial({
   telemetry,
@@ -1863,7 +1850,6 @@ const CenterDial = React.memo(function CenterDial({
   );
   lastGForceRef.current.at = gNow;
   lastGForceRef.current.speedKmh = telemetry.speedKmh || 0;
-  const gForce = lastGForceRef.current.value;
   const driftAngle = calculateDriftAngle(telemetry);
   const realTempValue = getTelemetryValue(
     telemetry,
@@ -1902,6 +1888,9 @@ const CenterDial = React.memo(function CenterDial({
     clamp(tempTarget - tempRef.current, -3 * tempElapsed, 3 * tempElapsed);
   const tempValue = Math.round(tempRef.current);
   const tempRatio = clamp(tempValue / 140, 0, 1);
+  const rpmReadout = Math.max(0, Math.round(telemetry.rpm || 0))
+    .toString()
+    .padStart(4, "0");
   return (
     <section className="dial-wrap">
       <div className="dial">
@@ -1952,7 +1941,10 @@ const CenterDial = React.memo(function CenterDial({
         <div className="dial-lower">
           <div className="lower-g-meter">
             <div className="lower-g-grid">
-              <strong>{number(gForce, 2)}</strong>
+              <GForceMeterCanvas
+                lateral={lastGForceRef.current.lateral}
+                longitudinal={lastGForceRef.current.longitudinal}
+              />
             </div>
             <span>G-FORCE</span>
           </div>
@@ -1962,10 +1954,8 @@ const CenterDial = React.memo(function CenterDial({
               <strong>{gear}</strong>
               <span>GEAR</span>
             </div>
-            <div className="lower-temp">
-              <span>♨</span>
-              <strong>{tempValue}°C</strong>
-              <i style={{ "--temp": `${tempRatio * 100}%` }} />
+            <div className="lower-rpm">
+              <strong>{rpmReadout} RPM</strong>
             </div>
           </div>
 
@@ -2894,20 +2884,62 @@ const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
   })();
 
   return (
-    <section className="bottom-systems glass-panel">
-      <SystemCar title="TIRE TEMP" values={tireTemps} visual="image" />
-      <SystemCar
-        title="SUSPENSION"
-        values={suspensionTravel}
-        accent="violet"
-        visual="image"
-        imageSrc={suspensionImage}
+    <section className="bottom-area" aria-label="Dashboard widgets">
+      <TireSuspensionCard
+        tireTemps={tireTemps}
+        suspensionTravel={suspensionTravel}
+        imageSrc={tiresSuspensionImage}
       />
       <InputBars telemetry={telemetry} />
-      <PowerGraph telemetry={telemetry} />
+      <div className="glass-panel system-card power-graph-card" aria-hidden="true" />
     </section>
   );
 });
+
+function TireSuspensionCard({ tireTemps, suspensionTravel, imageSrc }) {
+  const corners = ["FL", "FR", "RL", "RR"];
+
+  return (
+    <div className="glass-panel system-card tire-suspension-card">
+      <h3>TIRES & SUSPENSION</h3>
+      <div className="tire-suspension-layout">
+        {corners.map((corner, index) => {
+          const tireTemp = parseTireTemp(tireTemps[index]);
+          const tempRatio = clamp((normalizeDisplayTireTemp(tireTemp) - 55) / 65, 0, 1);
+          const tireHue = 122 - tempRatio * 102;
+          const suspension = parseSuspensionTravel(suspensionTravel[index]);
+          const suspensionRatio = clamp(suspension / 3, 0, 1);
+
+          return (
+            <div
+              className={`wheel-readout wheel-${corner.toLowerCase()}`}
+              key={corner}
+              style={{
+                "--temp-fill": tempRatio,
+                "--tire-hue": tireHue,
+                "--susp-fill": `${suspensionRatio * 100}%`,
+              }}
+            >
+              <span className="wheel-label">{corner}</span>
+              <div className="tire-block">
+                <strong>{tireTemps[index]}</strong>
+              </div>
+              <div className="suspension-readout">
+                <span>SUSP:</span>
+                <em>{suspensionTravel[index]}</em>
+                <i />
+                <small>{number(suspensionRatio * 100)}%</small>
+              </div>
+            </div>
+          );
+        })}
+        <div className="systems-car-slot">
+          <img className="systems-car-image" src={imageSrc} alt="" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SystemCar({
   title = "",
@@ -2917,7 +2949,7 @@ function SystemCar({
   imageSrc = carTopView,
 }) {
   return (
-    <div className={`system-card ${accent}`}>
+    <div className={`glass-panel system-card ${accent}`}>
       {title && <h3>{title}</h3>}
       <div className="car-metrics">
         <span>{values[0]}</span>
@@ -3068,26 +3100,49 @@ function Turbo({ value }) {
 const InputBars = React.memo(function InputBars({ telemetry }) {
   const rows = [
     ["THROTTLE", telemetry.throttle, "#21e78a", 255],
-    ["BRAKE", telemetry.brake, "#ff3d4f", 100],
-    ["CLUTCH", telemetry.clutch, "#25c8ff", 100],
-    ["STEER", Math.abs(telemetry.steer ?? 0) / 1.27, "#8b57ff", 100],
+    ["BRAKE", telemetry.brake, "#ff3d4f", 255],
+    ["CLUTCH", telemetry.clutch, "#25c8ff", 255],
+    ["HANDBRAKE", telemetry.handBrake, "#ff9b2f", 255],
   ];
+  const steer = clamp(telemetry.steer ?? 0, -127, 127);
+  const steerPercent = Math.abs(steer / 127) * 100;
+  const steerLabel =
+    steer > 0
+      ? `${number(steerPercent)}%`
+      : steer < 0
+        ? `${number(steerPercent)}%`
+        : "CENTER";
   return (
-    <div className="system-card input-card">
+    <div className="glass-panel system-card input-card">
       <h3>INPUTS</h3>
-      {rows.map(([label, value, color, max]) => (
-        <p
-          key={label}
-          style={{
-            "--value": `${clamp((value / max) * 100, 0, 100)}%`,
-            "--bar": color,
-          }}
-        >
-          <span>{label}</span>
-          <i />
-          <strong>{number(value)}%</strong>
-        </p>
-      ))}
+      {rows.map(([label, value, color, max]) => {
+        const percent = clamp(((Number(value) || 0) / max) * 100, 0, 100);
+        return (
+          <p
+            key={label}
+            style={{
+              "--value": `${percent}%`,
+              "--bar": color,
+            }}
+          >
+            <span>{label}</span>
+            <i />
+            <strong>{number(percent)}%</strong>
+          </p>
+        );
+      })}
+      <p
+        className="steer-input"
+        style={{
+          "--steer": `${50 + (steer / 127) * 50}%`,
+          "--steer-left": steer < 0 ? `${steerPercent / 2}%` : "0%",
+          "--steer-right": steer > 0 ? `${steerPercent / 2}%` : "0%",
+        }}
+      >
+        <span>STEER</span>
+        <i />
+        <strong>{steerLabel}</strong>
+      </p>
     </div>
   );
 });
