@@ -92,6 +92,10 @@ function storeMapState(mapState) {
   } catch {}
 }
 
+function telemetrySourceKey(telemetry) {
+  return `${telemetry?.status || ""}:${telemetry?.isRaceOn ?? ""}:${telemetry?.lastSender || ""}`;
+}
+
 export default React.memo(function NavigationPanel({
   telemetry,
   online,
@@ -112,11 +116,26 @@ export default React.memo(function NavigationPanel({
     },
   );
   const displayMapStateRef = useRef(null);
+  const sourceKeyRef = useRef(telemetrySourceKey(telemetry));
 
   const point = worldToMapPoint(telemetry);
   const liveYaw = Number(telemetry.yaw);
   const liveSpeed = Math.round(Number(telemetry.speedKmh) || 0);
   const liveHasPosition = Boolean(point);
+  const currentSourceKey = telemetrySourceKey(telemetry);
+
+  if (currentSourceKey !== sourceKeyRef.current) {
+    sourceKeyRef.current = currentSourceKey;
+    displayMapStateRef.current = null;
+    if (telemetry.status === "DEMO") {
+      lastMapStateRef.current = {
+        point: null,
+        yaw: 0,
+        speed: 0,
+        hasPosition: false,
+      };
+    }
+  }
 
   if (liveHasPosition) {
     lastMapStateRef.current = {
@@ -126,7 +145,9 @@ export default React.memo(function NavigationPanel({
       hasPosition: true,
     };
 
-    storeMapState(lastMapStateRef.current);
+    if (telemetry.status !== "DEMO") {
+      storeMapState(lastMapStateRef.current);
+    }
   }
 
   const mapState = lastMapStateRef.current;

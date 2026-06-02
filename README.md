@@ -130,7 +130,7 @@ Run Electron locally:
 npm run dev:electron
 ```
 
-Build the web app:
+Build the web app: 
 
 ```bat
 npm run build

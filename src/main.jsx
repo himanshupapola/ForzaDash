@@ -487,9 +487,18 @@ function useSmoothedTelemetry(targetTelemetry) {
   const [displayTelemetry, setDisplayTelemetry] = useState(targetTelemetry);
   const displayRef = useRef(targetTelemetry);
   const targetRef = useRef(targetTelemetry);
+  const sourceKeyRef = useRef(
+    `${targetTelemetry?.status || ""}:${targetTelemetry?.isRaceOn ?? ""}`,
+  );
 
   useEffect(() => {
+    const nextSourceKey = `${targetTelemetry?.status || ""}:${targetTelemetry?.isRaceOn ?? ""}`;
     targetRef.current = targetTelemetry;
+    if (nextSourceKey !== sourceKeyRef.current) {
+      sourceKeyRef.current = nextSourceKey;
+      displayRef.current = targetTelemetry;
+      setDisplayTelemetry(targetTelemetry);
+    }
   }, [targetTelemetry]);
 
   useEffect(() => {
@@ -542,7 +551,16 @@ function useSmoothedNumber(target, options = {}) {
   const { responsiveness = 8, rateLimit = 9999, minStep = 0.01 } = options;
   const valueRef = useRef(Number(target) || 0);
   const timeRef = useRef(Date.now());
+  const resetKeyRef = useRef(options.resetKey);
   const [, forceFrame] = useState(0);
+
+  useEffect(() => {
+    if (options.resetKey === resetKeyRef.current) return;
+    resetKeyRef.current = options.resetKey;
+    valueRef.current = Number(target) || 0;
+    timeRef.current = Date.now();
+    forceFrame((frame) => frame + 1);
+  }, [options.resetKey, target]);
 
   useEffect(() => {
     let frameId = 0;
@@ -1685,6 +1703,7 @@ function App() {
     : online
       ? "ONLINE"
       : "NO PACKETS";
+  const telemetryUiKey = `${smoothTelemetry?.status || ""}:${smoothTelemetry?.isRaceOn ?? ""}:${smoothTelemetry?.lastSender || ""}`;
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
   const controlLossInfo = getControlLossInfo(smoothTelemetry);
   const gearLimitFlashInfo = getGearLimitFlashInfo(smoothTelemetry);
@@ -1697,9 +1716,13 @@ function App() {
       responsiveness: 7.5,
       rateLimit: settings.speedUnit === "mph" ? 90 : 145,
       minStep: 0.08,
+      resetKey: telemetryUiKey,
     }),
   );
   const stableGearRef = useRef(1);
+  useEffect(() => {
+    stableGearRef.current = normalizeGear(telemetry.gear, 1);
+  }, [telemetryUiKey, telemetry.gear]);
   stableGearRef.current = normalizeGear(telemetry.gear, stableGearRef.current);
   const gear = formatGear(stableGearRef.current);
   if (
@@ -1734,15 +1757,17 @@ function App() {
             speedUnit={settings.speedUnit}
           />
           <section className="glass-panel navigation-spacer-card">
-            <PowerGraph telemetry={smoothTelemetry} />
+            <PowerGraph key={`power-${telemetryUiKey}`} telemetry={smoothTelemetry} />
           </section>
           <NavigationSection
+            key={`nav-${telemetryUiKey}`}
             telemetry={mapTelemetry}
             online={online}
             mapQuality={settings.mapQuality}
           />
         </aside>
         <CenterDial
+          key={`dial-${telemetryUiKey}`}
           telemetry={smoothTelemetry}
           speed={speed}
           gear={gear}
@@ -1754,10 +1779,14 @@ function App() {
             telemetry={smoothTelemetry}
             onOpenSettings={openSettings}
           />
-          <BoostPressurePanel telemetry={smoothTelemetry} />
+          <BoostPressurePanel key={`boost-${telemetryUiKey}`} telemetry={smoothTelemetry} />
         </aside>
       </section>
-      <BottomSystems telemetry={smoothTelemetry} inputTelemetry={telemetry} />
+      <BottomSystems
+        key={`systems-${telemetryUiKey}`}
+        telemetry={smoothTelemetry}
+        inputTelemetry={telemetry}
+      />
       <div
         className={`fullscreen-toast ${showFullscreenToast ? "visible" : ""}`}
         role="status"
