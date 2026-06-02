@@ -77,6 +77,8 @@ The app settings panel can change:
 - UDP forwarding on/off
 - UDP forward ports
 - Telemetry WebSocket port
+- LAN Dashboard Access
+- Developer Mode
 - Demo Drive Mode
 - Speed unit
 - Map quality
@@ -87,16 +89,20 @@ Defaults:
 
 ```text
 Dashboard: http://127.0.0.1:5173/
-Telemetry: ws://127.0.0.1:17878/
+LAN Dashboard: On by default, shown in Settings when a non-VPN LAN IP is found
+Telemetry: ws://127.0.0.1:17878/ locally, or ws://LAN-IP:17878/ from LAN devices
 Forza UDP: 127.0.0.1:1234
 UDP forwarding: Off
+Developer Mode: On
 Map quality: Optimized / Low Load
 Flash Mode: Off
 ```
 
-ForzaDash binds its dashboard, telemetry WebSocket, and UDP listener to `127.0.0.1` only. They are not exposed to public IPs or other devices on your network.
+ForzaDash binds its dashboard and telemetry WebSocket to your local network when LAN Dashboard Access is enabled. It avoids common VPN/virtual adapters when showing the LAN URL. Turn LAN Dashboard Access off if you only want `127.0.0.1`.
 
 Port changes and UDP forwarding changes apply after restarting the local server/app.
+
+Developer Mode writes diagnostic logs such as `forzadash-telemetry.log` and `forzadash-renderer.log`. Set `VITE_DEVELOPER_MODE=false` in `.env`, or turn it off in Settings, to disable most diagnostic logging after restart.
 
 ## Demo Drive Mode
 
@@ -156,6 +162,7 @@ If live data does not appear:
 - Use IP `127.0.0.1`.
 - Use port `1234`, or match the app setting.
 - Restart ForzaDash after port changes.
+- Send `forzadash-telemetry.log` from the EXE folder when reporting lag or freezing.
 
 If fullscreen does not work:
 

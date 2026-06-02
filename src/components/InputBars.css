@@ -1,6 +1,6 @@
 .bottom-area > .input-card {
   position: relative;
-  width: 100%;
+  width: calc(100% + clamp(28px, 2vw, 48px));
   height: 86%;
   min-height: 0;
   align-self: end;
@@ -101,7 +101,7 @@
   box-shadow:
     0 0 5px color-mix(in srgb, var(--bar) 45%, transparent),
     inset 0 0 6px rgba(255, 255, 255, 0.12);
-  transition: width 160ms ease-out;
+  transition: width 90ms linear;
 }
 
 .input-row strong {

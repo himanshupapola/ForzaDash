@@ -84,7 +84,7 @@ function storeMapState(mapState) {
 export default React.memo(function NavigationPanel({
   telemetry,
   online,
-  mapQuality = "optimized",
+  mapQuality = "full",
 }) {
   const [fullQualityMap, setFullQualityMap] = useState(null);
   const driveStatsRef = useRef({

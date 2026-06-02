@@ -25,6 +25,13 @@ body {
   background: #000000;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
 button {
   border: 0;
   color: inherit;
@@ -206,6 +213,7 @@ button:focus-visible,
   display: grid;
   align-content: center;
   gap: 3px;
+  margin-left: -6px;
   font-family: Rajdhani, sans-serif;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -270,8 +278,6 @@ button:focus-visible,
   padding-left: clamp(132px, 8vw, 178px);
   padding-right: clamp(118px, 7vw, 160px);
   border: 1px solid rgba(35, 151, 205, 0.1);
-  border-left: 0;
-  border-right: 0;
   border-bottom-left-radius: 76px 42px;
   border-bottom-right-radius: 76px 42px;
   clip-path: polygon(6% 0, 94% 0, 88.5% 100%, 11.5% 100%);
@@ -424,7 +430,7 @@ button:focus-visible,
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, 29.5fr) minmax(0, 38.5fr) minmax(0, 32fr);
+  grid-template-columns: minmax(0, 30fr) minmax(0, 40fr) minmax(0, 30fr);
   gap: var(--main-grid-gap);
   min-height: 0;
   align-items: start;
@@ -463,10 +469,10 @@ h3 {
   --navigation-bottom-clearance: calc(var(--hud-bottom-row) * 0.1);
   --left-stack-margin-right: clamp(38px, 4.5vw, 64px);
   --left-stack-track-width: calc(
-    (100vw - (var(--hud-padding) * 2) - (var(--main-grid-gap) * 2)) * 0.295
+    (100vw - (var(--hud-padding) * 2) - (var(--main-grid-gap) * 2)) * 0.3
   );
   --tire-suspension-card-width: calc(
-    (100vw - (var(--hud-padding) * 2) - (var(--hud-gap) * 2)) * 0.26
+    (100vw - (var(--hud-padding) * 2) - (var(--hud-gap) * 2)) * 0.27
   );
   --left-panel-width-shift: max(
     0px,
@@ -1097,7 +1103,7 @@ h3 {
   min-height: 0;
   display: grid;
   place-items: center;
-  transform: translate(clamp(-29px, -1.35vw, -15px), clamp(34px, 5vh, 63px));
+  transform: translate(clamp(-18px, -1vw, -10px), clamp(34px, 5vh, 63px));
   overflow: visible;
 }
 
@@ -1402,7 +1408,7 @@ h3 {
 .lower-rpm strong {
   display: inline-block;
   min-width: 7ch;
-  color: hsl(calc(270 - (var(--rpm-ratio, 0) * 270)) 100% 64%);
+  color: var(--rpm-color, #4adfff);
   font-size: clamp(20px, 1.55vw, 30px);
   font-weight: 700;
   line-height: 1;
@@ -1411,8 +1417,10 @@ h3 {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   text-shadow:
-    0 0 10px hsl(calc(270 - (var(--rpm-ratio, 0) * 270)) 100% 64% / 0.42),
-    0 0 18px hsl(calc(270 - (var(--rpm-ratio, 0) * 270)) 100% 64% / 0.22);
+    0 0 calc(7px + (var(--rpm-glow, 0) * 9px))
+      color-mix(in srgb, var(--rpm-color, #4adfff) calc(36% + (var(--rpm-glow, 0) * 34%)), transparent),
+    0 0 calc(14px + (var(--rpm-glow, 0) * 18px))
+      color-mix(in srgb, var(--rpm-color, #4adfff) calc(16% + (var(--rpm-glow, 0) * 30%)), transparent);
 }
 
 .lower-temp {
@@ -1695,20 +1703,24 @@ h3 {
 }
 
 .boost-live-value strong {
-  color: #f5fbff;
+  color: var(--boost-level-color, #f5fbff);
   font-size: clamp(28px, 2.55vw, 48px);
   font-weight: 700;
   line-height: 0.76;
   letter-spacing: -0.05em;
-  text-shadow: none;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--boost-level-color, #f5fbff) var(--boost-glow, 24%), transparent);
+  transition:
+    color 140ms ease-out,
+    text-shadow 140ms ease-out;
 }
 
 .boost-live-value small {
-  color: #9aa9bd;
+  color: color-mix(in srgb, var(--boost-level-color, #9aa9bd) 66%, #9aa9bd);
   font-size: clamp(12px, 0.92vw, 17px);
   font-weight: 800;
   font-style: italic;
   letter-spacing: 0.04em;
+  transition: color 140ms ease-out;
 }
 
 .boost-pressure-level {
@@ -1722,22 +1734,25 @@ h3 {
 }
 
 .boost-pressure-level strong {
-  color: #aab6bf;
+  color: var(--boost-level-color, #aab6bf);
   font-size: clamp(20px, 1.65vw, 32px);
   font-weight: 700;
   line-height: 0.9;
   letter-spacing: 0.08em;
-  text-shadow: none;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--boost-level-color, #aab6bf) var(--boost-glow, 24%), transparent);
+  transition:
+    color 140ms ease-out,
+    text-shadow 140ms ease-out;
 }
 
 .boost-pressure-meter {
   grid-column: 1 / -1;
-  height: clamp(9px, 0.95vh, 14px);
+  height: clamp(13px, 1.35vh, 19px);
   border: 1px solid rgba(107, 139, 156, 0.14);
   border-radius: 0;
   background:
     repeating-linear-gradient(
-      90deg,
+      105deg,
       rgba(95, 119, 132, 0.24) 0 7px,
       transparent 7px 12px
     ),
@@ -1759,12 +1774,12 @@ h3 {
   );
   clip-path: inset(0 calc(100% - var(--boost-fill)) 0 0);
   -webkit-mask-image: repeating-linear-gradient(
-    90deg,
+    105deg,
     #000 0 7px,
     transparent 7px 12px
   );
   mask-image: repeating-linear-gradient(
-    90deg,
+    105deg,
     #000 0 7px,
     transparent 7px 12px
   );
@@ -1796,8 +1811,9 @@ h3 {
 }
 
 .right-stack > .music-panel .track-row {
-  grid-template-columns: clamp(118px, 8.4vw, 156px) minmax(0, 1fr);
-  width: min(100%, clamp(300px, 27vw, 480px));
+  grid-template-columns: clamp(118px, 8.4vw, 156px) minmax(0, clamp(150px, 13vw, 230px));
+  width: max-content;
+  max-width: 100%;
   justify-self: center;
   align-self: center;
   margin-top: 0;
@@ -2266,6 +2282,37 @@ h3 {
   margin: 0 0 16px;
 }
 
+.settings-url-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-url-row span,
+.settings-url-row em {
+  color: #8e99a3;
+  font-size: 12px;
+}
+
+.settings-url-row code {
+  overflow: hidden;
+  color: #bfeeff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.settings-url-row button {
+  padding: 5px 10px;
+}
+
+.settings-url-row em {
+  grid-column: 2 / -1;
+  font-style: normal;
+}
+
 .settings-error {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -2346,10 +2393,11 @@ h3 {
 }
 
 .album-art {
+  position: relative;
   aspect-ratio: 1;
   height: auto;
   min-height: clamp(132px, 9vw, 166px);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 8px;
   font-family: Rajdhani, sans-serif;
   font-size: clamp(22px, 1.85vw, 34px);
@@ -2359,9 +2407,56 @@ h3 {
   background-size: cover;
   background-position: center;
   overflow: hidden;
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    #000 74%,
+    rgba(0, 0, 0, 0.84) 88%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse at center,
+    #000 74%,
+    rgba(0, 0, 0, 0.84) 88%,
+    transparent 100%
+  );
   box-shadow:
     0 16px 34px rgba(0, 0, 0, 0.34),
     0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.album-art.is-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: #f8fbff;
+  font-size: clamp(11px, 0.86vw, 16px);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.72),
+    0 0 14px rgba(255, 255, 255, 0.22);
+}
+
+.album-art.is-placeholder span {
+  color: transparent;
+  background: linear-gradient(135deg, #ffffff, #ffd43b 48%, #ff5575);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.album-art.is-placeholder.is-youtube {
+  background:
+    radial-gradient(circle at 72% 28%, rgba(255, 72, 84, 0.34), transparent 32%),
+    linear-gradient(145deg, #d90b28, #35051e 48%, #070713);
+}
+
+.album-art.is-placeholder.is-spotify {
+  background:
+    radial-gradient(circle at 70% 24%, rgba(55, 255, 144, 0.3), transparent 34%),
+    linear-gradient(145deg, #08723d, #06251c 48%, #05090b);
 }
 
 .track-copy {
@@ -2918,7 +3013,7 @@ h3 {
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 26fr) minmax(0, 39fr) minmax(0, 35fr);
+  grid-template-columns: minmax(0, 27fr) minmax(0, 38fr) minmax(0, 35fr);
   gap: var(--hud-gap);
   overflow: visible;
 }
@@ -3294,7 +3389,7 @@ h3 {
   }
 
   .brand-mark {
-    gap: 12px;
+    gap: 4px;
     padding-inline: 24px;
   }
 
@@ -3309,7 +3404,7 @@ h3 {
   }
 
   .main-grid {
-    grid-template-columns: minmax(0, 29.5fr) minmax(0, 38.5fr) minmax(0, 32fr);
+    grid-template-columns: minmax(0, 30fr) minmax(0, 40fr) minmax(0, 30fr);
   }
 
   .telemetry-panel {
@@ -3419,7 +3514,7 @@ h3 {
   }
 
   .main-grid {
-    grid-template-columns: minmax(0, 29.5fr) minmax(0, 38.5fr) minmax(0, 32fr);
+    grid-template-columns: minmax(0, 30fr) minmax(0, 40fr) minmax(0, 30fr);
     grid-template-areas: "telemetry dial right";
   }
 
@@ -3536,8 +3631,9 @@ h3 {
   }
 
   .right-stack > .music-panel .track-row {
-    grid-template-columns: clamp(112px, 8.2vw, 142px) minmax(0, 1fr);
-    width: min(100%, clamp(330px, 29vw, 460px));
+    grid-template-columns: clamp(112px, 8.2vw, 142px) minmax(0, clamp(145px, 13vw, 220px));
+    width: max-content;
+    max-width: 100%;
     gap: clamp(14px, 1.25vw, 22px);
     align-self: center;
     margin-top: 0;
@@ -3992,5 +4088,19 @@ h3 {
   .y-axis-right {
     top: 32px;
     bottom: 32px;
+  }
+}
+
+@media (min-width: 821px) {
+  body,
+  #root {
+    display: grid;
+    place-items: center;
+  }
+
+  .dashboard {
+    width: min(100vw, 160dvh);
+    height: min(100dvh, 62.5vw);
+    aspect-ratio: 16 / 10;
   }
 }

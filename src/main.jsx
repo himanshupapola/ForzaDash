@@ -51,6 +51,57 @@ import {
 import "./styles.css";
 import speedometerBg from "./assets/speedometer-bg.jpg";
 
+const DEFAULT_DEVELOPER_MODE = import.meta.env.VITE_DEVELOPER_MODE === "true";
+let rendererDeveloperMode = DEFAULT_DEVELOPER_MODE;
+
+function reportRendererLog(message) {
+  if (!rendererDeveloperMode) return;
+  fetch("/api/renderer-log", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    body: String(message).slice(0, 4000),
+  }).catch(() => {});
+}
+
+function reportClientEvent(name, data = {}, level = "info") {
+  reportRendererLog(
+    JSON.stringify({
+      source: "frontend",
+      name,
+      level,
+      at: new Date().toISOString(),
+      page: window.location.href,
+      userAgent: navigator.userAgent,
+      data,
+    }),
+  );
+}
+
+window.addEventListener("error", (event) => {
+  reportClientEvent(
+    "ERROR",
+    {
+      message: event.message || "unknown",
+      source: event.filename || "-",
+      line: event.lineno || 0,
+      column: event.colno || 0,
+      stack: event.error?.stack || "-",
+    },
+    "error",
+  );
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  reportClientEvent(
+    "UNHANDLED_REJECTION",
+    {
+      reason:
+        event.reason?.stack || event.reason?.message || String(event.reason),
+    },
+    "error",
+  );
+});
+
 const fallbackTelemetry = {
   status: "WAITING",
   speedKmh: 0,
@@ -85,10 +136,12 @@ const DEFAULT_SETTINGS = {
   forzaUdpForwardPort: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT || "1235",
   forzaUdpForwardPort2: import.meta.env.VITE_FORZA_UDP_FORWARD_PORT_2 || "1236",
   telemetryWsPort: import.meta.env.VITE_TELEMETRY_WS_PORT || "17878",
+  lanAccessEnabled: import.meta.env.VITE_LAN_ACCESS_ENABLED !== "false",
+  developerMode: DEFAULT_DEVELOPER_MODE,
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
   demoDriveMode: false,
   speedUnit: "kmh",
-  mapQuality: "optimized",
+  mapQuality: "full",
   flashMode: false,
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
@@ -204,6 +257,7 @@ function readSettings() {
 }
 
 function saveSettings(settings) {
+  rendererDeveloperMode = Boolean(settings.developerMode);
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   fetch("/api/settings", {
     method: "POST",
@@ -231,7 +285,9 @@ function useSettings() {
 
   useEffect(() => {
     function sync(event) {
-      setSettings(event.detail || readSettings());
+      const nextSettings = event.detail || readSettings();
+      rendererDeveloperMode = Boolean(nextSettings.developerMode);
+      setSettings(nextSettings);
     }
     window.addEventListener("forzadash:settings", sync);
     window.addEventListener("storage", sync);
@@ -320,7 +376,8 @@ function readStoredYouTubeMuted() {
 }
 
 function getServerHostname() {
-  return "127.0.0.1";
+  const hostname = window.location.hostname;
+  return hostname || "127.0.0.1";
 }
 
 function getTelemetryHttpBase(port) {
@@ -1290,10 +1347,75 @@ function App() {
   const clock = useClock();
   const demoFrameRef = useRef(0);
   const lastLiveTelemetryRef = useRef(null);
+  const lastPacketAtRef = useRef(lastPacketAt);
+  const telemetryServerOnlineRef = useRef(telemetryServerOnline);
+  const frontendRateRef = useRef({
+    lastRawCount: Number(fallbackTelemetry.rawCount) || 0,
+    lastParsedCount: Number(fallbackTelemetry.parsedCount) || 0,
+  });
   const fullscreenToastTimerRef = useRef(0);
   const wasFullscreenRef = useRef(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  lastPacketAtRef.current = lastPacketAt;
+  telemetryServerOnlineRef.current = telemetryServerOnline;
+
+  useEffect(() => {
+    reportClientEvent("APP_BOOT", {
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      devicePixelRatio: window.devicePixelRatio,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      memoryGb: navigator.deviceMemory || null,
+      electron: /\bElectron\b/i.test(navigator.userAgent),
+      settings: {
+        lanAccessEnabled: settings.lanAccessEnabled !== false,
+        developerMode: Boolean(settings.developerMode),
+        telemetryWsPort: settings.telemetryWsPort,
+        demoDriveMode: settings.demoDriveMode,
+      },
+    });
+  }, []);
+
+  useEffect(() => {
+    let frames = 0;
+    let slowFrames = 0;
+    let worstFrameMs = 0;
+    let lastFrameAt = performance.now();
+    let lastReportAt = performance.now();
+    let frameId = 0;
+
+    function tick(now) {
+      const frameMs = now - lastFrameAt;
+      lastFrameAt = now;
+      frames += 1;
+      if (frameMs > 50) slowFrames += 1;
+      worstFrameMs = Math.max(worstFrameMs, frameMs);
+
+      if (now - lastReportAt >= 5000) {
+        const elapsedSeconds = Math.max((now - lastReportAt) / 1000, 1);
+        reportClientEvent("RENDER_HEALTH", {
+          fps: Math.round(frames / elapsedSeconds),
+          slowFrames,
+          worstFrameMs: Math.round(worstFrameMs),
+          online: Boolean(lastPacketAtRef.current && Date.now() - lastPacketAtRef.current < 2500),
+          telemetryServerOnline: telemetryServerOnlineRef.current,
+          rawCount: Number(lastLiveTelemetryRef.current?.rawCount) || 0,
+          parsedCount: Number(lastLiveTelemetryRef.current?.parsedCount) || 0,
+          droppedPacketCount: lastLiveTelemetryRef.current?.droppedPacketCount ?? null,
+          broadcastCount: lastLiveTelemetryRef.current?.broadcastCount ?? null,
+        });
+        frames = 0;
+        slowFrames = 0;
+        worstFrameMs = 0;
+        lastReportAt = now;
+      }
+
+      frameId = requestAnimationFrame(tick);
+    }
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
 
   function isAppFullscreen() {
     if (document.fullscreenElement) return true;
@@ -1372,6 +1494,21 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let expectedAt = Date.now() + 5000;
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      reportClientEvent("HEARTBEAT", {
+        timerLagMs: Math.max(0, now - expectedAt),
+        telemetryAgeMs: lastPacketAtRef.current ? now - lastPacketAtRef.current : -1,
+        telemetryServerOnline: telemetryServerOnlineRef.current,
+        visibility: document.visibilityState,
+      });
+      expectedAt = now + 5000;
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
     if (window.forzaDash?.onTelemetry) {
       window.forzaDash
         .getLatestTelemetry?.()
@@ -1379,6 +1516,7 @@ function App() {
           setTelemetryServerOnline(true);
           if (data) {
             setTelemetry(data);
+            lastLiveTelemetryRef.current = data;
             setLastPacketAt(Date.now());
           }
         })
@@ -1386,22 +1524,60 @@ function App() {
       return window.forzaDash.onTelemetry((data) => {
         setTelemetryServerOnline(true);
         setTelemetry(data);
+        lastLiveTelemetryRef.current = data;
         setLastPacketAt(Date.now());
       });
     }
 
     const telemetryPort =
       settings.telemetryWsPort || DEFAULT_SETTINGS.telemetryWsPort;
-    const socket = new WebSocket(getTelemetryWsUrl(telemetryPort));
-    socket.addEventListener("open", () => setTelemetryServerOnline(true));
-    socket.addEventListener("message", (event) => {
-      const data = JSON.parse(event.data);
+    const telemetryWsUrl = getTelemetryWsUrl(telemetryPort);
+    reportClientEvent("TELEMETRY_WS_CONNECTING", { url: telemetryWsUrl });
+    const socket = new WebSocket(telemetryWsUrl);
+    socket.addEventListener("open", () => {
+      reportClientEvent("TELEMETRY_WS_OPEN", { url: telemetryWsUrl });
       setTelemetryServerOnline(true);
-      setTelemetry(data);
-      setLastPacketAt(Date.now());
     });
-    socket.addEventListener("error", () => setTelemetryServerOnline(false));
-    socket.addEventListener("close", () => setTelemetryServerOnline(false));
+    socket.addEventListener("message", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setTelemetryServerOnline(true);
+        setTelemetry(data);
+        lastLiveTelemetryRef.current = data;
+        const rawCount = Number(data.rawCount) || 0;
+        const parsedCount = Number(data.parsedCount) || 0;
+        const now = Date.now();
+        if (!frontendRateRef.current.lastReportAt) {
+          frontendRateRef.current.lastReportAt = now;
+          frontendRateRef.current.lastRawCount = rawCount;
+          frontendRateRef.current.lastParsedCount = parsedCount;
+        } else if (now - frontendRateRef.current.lastReportAt >= 5000) {
+          const elapsedSeconds = Math.max((now - frontendRateRef.current.lastReportAt) / 1000, 1);
+          reportClientEvent("TELEMETRY_FRONTEND_RATE", {
+            rawPerSecond: Number(((rawCount - frontendRateRef.current.lastRawCount) / elapsedSeconds).toFixed(1)),
+            parsedPerSecond: Number(((parsedCount - frontendRateRef.current.lastParsedCount) / elapsedSeconds).toFixed(1)),
+            rawCount,
+            parsedCount,
+            lastSender: data.lastSender || "-",
+            status: data.status || "-",
+          });
+          frontendRateRef.current.lastReportAt = now;
+          frontendRateRef.current.lastRawCount = rawCount;
+          frontendRateRef.current.lastParsedCount = parsedCount;
+        }
+        setLastPacketAt(Date.now());
+      } catch (error) {
+        reportClientEvent("WEBSOCKET_PARSE_ERROR", { error: error?.message || String(error) }, "error");
+      }
+    });
+    socket.addEventListener("error", () => {
+      reportClientEvent("WEBSOCKET_ERROR", { url: telemetryWsUrl }, "error");
+      setTelemetryServerOnline(false);
+    });
+    socket.addEventListener("close", (event) => {
+      reportClientEvent("WEBSOCKET_CLOSE", { code: event.code, reason: event.reason || "-" });
+      setTelemetryServerOnline(false);
+    });
     return () => socket.close();
   }, [settings.telemetryWsPort]);
 
@@ -1498,7 +1674,7 @@ function App() {
           <BoostPressurePanel telemetry={smoothTelemetry} />
         </aside>
       </section>
-      <BottomSystems telemetry={smoothTelemetry} />
+      <BottomSystems telemetry={smoothTelemetry} inputTelemetry={telemetry} />
       <div
         className={`fullscreen-toast ${showFullscreenToast ? "visible" : ""}`}
         role="status"
@@ -1869,6 +2045,15 @@ const CenterDial = React.memo(function CenterDial({
   const rpmReadout = Math.max(0, Math.round(telemetry.rpm || 0))
     .toString()
     .padStart(4, "0");
+  const rpmColor =
+    liveRpmRatio < 0.45
+      ? "#4adfff"
+      : liveRpmRatio < 0.72
+        ? "#35e887"
+        : liveRpmRatio < 0.88
+          ? "#ffd43b"
+          : "#ff3150";
+  const rpmGlow = clamp((liveRpmRatio - 0.42) / 0.58, 0, 1);
   return (
     <section className="dial-wrap">
       <div className="dial">
@@ -1934,7 +2119,10 @@ const CenterDial = React.memo(function CenterDial({
             </div>
             <div
               className="lower-rpm"
-              style={{ "--rpm-ratio": liveRpmRatio }}
+              style={{
+                "--rpm-color": rpmColor,
+                "--rpm-glow": rpmGlow,
+              }}
             >
               <strong>{rpmReadout} RPM</strong>
             </div>
@@ -1956,6 +2144,8 @@ const CenterDial = React.memo(function CenterDial({
 });
 
 const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry }) {
+  const learnedPeakPsiRef = useRef(15);
+  const carKeyRef = useRef("");
   const rawBoostBar = Number(telemetry.boostBar);
   const rawBoostPsi = Number(telemetry.boostPsi);
   const boostBar = Number.isFinite(rawBoostBar)
@@ -1965,7 +2155,27 @@ const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry })
       : 0;
   const boostPsi = Number.isFinite(rawBoostPsi) ? rawBoostPsi : boostBar * 14.5038;
   const pressurePsi = Math.max(0, boostPsi);
-  const scaleMaxPsi = 15;
+  const carKey =
+    telemetry.carOrdinal ??
+    telemetry.CarOrdinal ??
+    telemetry.carId ??
+    telemetry.CarId ??
+    telemetry.performanceIndex ??
+    telemetry.PerformanceIndex ??
+    "";
+
+  if (carKeyRef.current !== String(carKey)) {
+    carKeyRef.current = String(carKey);
+    learnedPeakPsiRef.current = 15;
+  }
+
+  if (pressurePsi > learnedPeakPsiRef.current * 0.96) {
+    learnedPeakPsiRef.current = Math.max(15, pressurePsi * 1.18);
+  } else if (pressurePsi < 0.2 && Number(telemetry.isRaceOn) === 0) {
+    learnedPeakPsiRef.current = 15;
+  }
+
+  const scaleMaxPsi = learnedPeakPsiRef.current;
   const boostRatio = clamp(pressurePsi / scaleMaxPsi, 0, 1);
   const pressureLevel =
     boostRatio < 0.33 ? "LOW" : boostRatio < 0.67 ? "MID" : "MAX";
@@ -1989,6 +2199,7 @@ const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry })
         style={{
           "--boost-fill": `${boostRatio * 100}%`,
           "--boost-level-color": pressureLevelColor,
+          "--boost-glow": `${Math.round(18 + boostRatio * 46)}%`,
         }}
       >
         <div className="boost-value-group">
@@ -2572,10 +2783,10 @@ const MusicPanel = React.memo(function MusicPanel({
         <>
       <div className="track-row">
         <div
-          className="album-art"
+          className={`album-art ${image ? "" : "is-placeholder"} ${isYouTube ? "is-youtube" : "is-spotify"}`}
           style={image ? { backgroundImage: `url(${image})` } : undefined}
         >
-          {!image && (isYouTube ? "YOUTUBE" : "STARBOY")}
+          {!image && <span>{isYouTube ? "@boring_coder" : "STARBOY"}</span>}
         </div>
         <div className="track-copy">
           <strong>{title}</strong>
@@ -2734,17 +2945,45 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
   const [draft, setDraft] = useState(settings);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [networkInfo, setNetworkInfo] = useState(null);
+  const [urlCopied, setUrlCopied] = useState(false);
   const spotifyConfigured = Boolean(draft.spotifyClientId?.trim());
   const spotifyLoggedIn = hasSpotifyLogin();
+  const dashboardUrl = networkInfo?.lanUrl || networkInfo?.localUrl || "";
 
   useEffect(() => {
     setDraft(settings);
+    rendererDeveloperMode = Boolean(settings.developerMode);
   }, [settings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/network")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled) setNetworkInfo(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateField(key, value) {
     setSaved(false);
     setSettingsError("");
     setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function copyDashboardUrl() {
+    if (!dashboardUrl) return;
+    try {
+      await navigator.clipboard.writeText(dashboardUrl);
+      setUrlCopied(true);
+      window.setTimeout(() => setUrlCopied(false), 1600);
+    } catch {
+      setSettingsError("Could not copy the dashboard URL.");
+    }
   }
 
   function portValue(value) {
@@ -2833,6 +3072,8 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
         DEFAULT_SETTINGS.forzaUdpForwardPort2,
       telemetryWsPort:
         draft.telemetryWsPort.trim() || DEFAULT_SETTINGS.telemetryWsPort,
+      lanAccessEnabled: Boolean(draft.lanAccessEnabled),
+      developerMode: Boolean(draft.developerMode),
       spotifyClientId: draft.spotifyClientId.trim(),
       demoDriveMode: telemetryOnline ? false : Boolean(draft.demoDriveMode),
       mapQuality: draft.mapQuality === "full" ? "full" : "optimized",
@@ -2955,6 +3196,34 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
           <label className="settings-toggle">
             <input
               type="checkbox"
+              checked={draft.lanAccessEnabled !== false}
+              onChange={(event) =>
+                updateField("lanAccessEnabled", event.target.checked)
+              }
+            />
+            <span>
+              <strong>LAN Dashboard Access</strong>
+              <em>Allow phones, tablets, and other local devices</em>
+            </span>
+            <i aria-hidden="true" />
+          </label>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={Boolean(draft.developerMode)}
+              onChange={(event) =>
+                updateField("developerMode", event.target.checked)
+              }
+            />
+            <span>
+              <strong>Developer Mode</strong>
+              <em>Write frontend and backend diagnostic logs</em>
+            </span>
+            <i aria-hidden="true" />
+          </label>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
               checked={Boolean(draft.demoDriveMode)}
               disabled={telemetryOnline}
               onChange={(event) =>
@@ -3003,6 +3272,20 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
           </label>
         </div>
         {settingsError && <p className="settings-error">{settingsError}</p>}
+        <div className="settings-note settings-url-row">
+          <span>Dashboard URL</span>
+          <code>{draft.lanAccessEnabled === false ? "LAN access disabled" : dashboardUrl || "Loading..."}</code>
+          <button
+            type="button"
+            onClick={copyDashboardUrl}
+            disabled={draft.lanAccessEnabled === false || !dashboardUrl}
+          >
+            {urlCopied ? "Copied" : "Copy"}
+          </button>
+          {!networkInfo?.lanUrl && draft.lanAccessEnabled !== false && dashboardUrl && (
+            <em>Local only: no LAN IP detected</em>
+          )}
+        </div>
         <p className="settings-note">
           {saved
             ? "Saved. Port changes apply after restarting the local server/app."
@@ -3061,7 +3344,10 @@ const WeatherPanel = React.memo(function WeatherPanel({ weather }) {
   );
 });
 
-const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
+const BottomSystems = React.memo(function BottomSystems({
+  telemetry,
+  inputTelemetry,
+}) {
   const lastTireTempsRef = useRef([52, 52, 50, 50]);
   const lastSuspensionRef = useRef([2.2, 2.2, 2.0, 2.0]);
   const lastTimestampRef = useRef(Date.now());
@@ -3109,7 +3395,7 @@ const BottomSystems = React.memo(function BottomSystems({ telemetry }) {
         suspensionTravel={suspensionTravel}
         imageSrc={tiresSuspensionImage}
       />
-      <InputBarsSection telemetry={telemetry} />
+      <InputBarsSection telemetry={inputTelemetry || telemetry} />
       <GripMonitorSection telemetry={telemetry} />
     </section>
   );
@@ -3189,7 +3475,7 @@ function GripMonitorCard({ telemetry }) {
   const wheelspinPct = maxSlip > 1 ? clamp(Math.round(((maxSlip - 1) / 1.5) * 100), 0, 100) : 0;
   const avgSlip = slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
   const gripIndex = clamp(Math.round(100 - avgSlip * 80), 0, 100);
-  const status = gripIndex < 40 ? "NO CONTROL" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
+  const status = gripIndex < 40 ? "LOST" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
   const statusClass = gripIndex < 40 ? "danger" : gripIndex < 85 ? "warn" : "good";
   const rows = [
     ["FRONT SLIP", frontSlipPct],
@@ -3208,7 +3494,11 @@ function GripMonitorCard({ telemetry }) {
         </div>
         <div className="grip-slip-list">
           {rows.map(([label, value]) => (
-            <div className="grip-slip-row" key={label} style={{ "--slip": `${value}%` }}>
+            <div
+              className={`grip-slip-row ${value >= 65 ? "danger" : value >= 35 ? "warn" : ""}`}
+              key={label}
+              style={{ "--slip": `${value}%` }}
+            >
               <span>{label}</span>
               <i><em /></i>
               <strong>{value}%</strong>

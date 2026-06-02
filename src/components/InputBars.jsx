@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import "./InputBars.css";
 
 function clamp(value, min, max) {
@@ -9,40 +9,11 @@ function number(value, digits = 0) {
   return Number.isFinite(value) ? value.toFixed(digits) : "0";
 }
 
-function useSmoothedNumber(target, responsiveness = 9, rateLimit = 180) {
-  const valueRef = useRef(Number(target) || 0);
-  const timeRef = useRef(Date.now());
-  const [, forceFrame] = useState(0);
-
-  useEffect(() => {
-    let frameId = 0;
-    function tick() {
-      const now = Date.now();
-      const dt = clamp((now - timeRef.current) / 1000, 0.016, 0.08);
-      timeRef.current = now;
-      const current = valueRef.current;
-      const nextTarget = Number(target) || 0;
-      const alpha = 1 - Math.exp(-responsiveness * dt);
-      const next =
-        current +
-        clamp((nextTarget - current) * alpha, -rateLimit * dt, rateLimit * dt);
-      valueRef.current = Math.abs(nextTarget - next) < 0.03 ? nextTarget : next;
-      forceFrame((frame) => frame + 1);
-      if (valueRef.current !== nextTarget) frameId = requestAnimationFrame(tick);
-    }
-    frameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameId);
-  }, [rateLimit, responsiveness, target]);
-
-  return valueRef.current;
-}
-
 function InputRow({ label, value, color, max }) {
   const percent = clamp(((Number(value) || 0) / max) * 100, 0, 100);
-  const smoothPercent = useSmoothedNumber(percent);
 
   return (
-    <div className="input-row" style={{ "--bar": color, "--value": `${smoothPercent}%` }}>
+    <div className="input-row" style={{ "--bar": color, "--value": `${percent}%` }}>
       <div className="input-name">
         <span>{label}</span>
         <em />
@@ -50,7 +21,7 @@ function InputRow({ label, value, color, max }) {
       <div className="input-segments">
         <i />
       </div>
-      <strong>{number(smoothPercent).padStart(2, "0")}%</strong>
+      <strong>{number(percent).padStart(2, "0")}%</strong>
     </div>
   );
 }

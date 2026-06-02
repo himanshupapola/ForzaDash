@@ -1,9 +1,10 @@
 const dgram = require("node:dgram");
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
-const parseForzaDataOut = require("forza-horizon/dist/parse").default;
+const ForzaServer = require("forza-horizon").default;
 
 let HID = null;
 try {
@@ -46,6 +47,8 @@ function envBool(name, fallback = false) {
 loadLocalEnv();
 
 const LOCAL_HOST = "127.0.0.1";
+const LAN_ACCESS_ENABLED = envBool("VITE_LAN_ACCESS_ENABLED", true);
+const SERVER_HOST = LAN_ACCESS_ENABLED ? "0.0.0.0" : LOCAL_HOST;
 // Forza sends raw UDP telemetry packets here
 const UDP_PORT = envPort("VITE_FORZA_UDP_PORT", 1234);
 // Forward the raw packets to another local port for tools like SimHub
@@ -58,14 +61,52 @@ const UDP_FORWARD_PORTS = UDP_FORWARDING_ENABLED
 // The dashboard app connects to this WebSocket for parsed telemetry
 const WS_PORT = envPort("VITE_TELEMETRY_WS_PORT", 17878);
 const DASHBOARD_PORT = envPort("VITE_DASHBOARD_PORT", 5173);
+const DEVELOPER_MODE = envBool("VITE_DEVELOPER_MODE", false);
+const DIAGNOSTICS_ENABLED = envBool(
+  "VITE_TELEMETRY_DIAGNOSTICS",
+  DEVELOPER_MODE,
+);
+const DIAGNOSTICS_INTERVAL_MS = 1000;
+
+function getDiagnosticsPath() {
+  const basePath =
+    process.env.PORTABLE_EXECUTABLE_DIR ||
+    process.env.FORZADASH_LOG_DIR ||
+    process.cwd();
+  const logsDir = path.join(basePath, "logs");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  fs.mkdirSync(logsDir, { recursive: true });
+  return path.join(logsDir, `forzadash-debug-${timestamp}.log`);
+}
+
+const diagnosticsPath = getDiagnosticsPath();
+process.env.FORZADASH_DEBUG_LOG_PATH = diagnosticsPath;
+
+function appendDiagnostic(message) {
+  if (!DIAGNOSTICS_ENABLED) return;
+  try {
+    fs.appendFileSync(
+      diagnosticsPath,
+      `[${new Date().toISOString()}] ${message}\n`,
+      "utf8",
+    );
+  } catch {}
+}
+
+function diagnosticJson(label, payload) {
+  appendDiagnostic(`${label} ${JSON.stringify(payload)}`);
+}
 
 function describePortUse(name, port) {
-  return `${name} ${LOCAL_HOST}:${port}`;
+  return `${name} ${SERVER_HOST}:${port}`;
 }
 
 function exitWithPortError(message) {
-  console.error(`\nForzaDash port error: ${message}`);
-  console.error("Update the port in Settings, then restart ForzaDash.\n");
+  const fullMessage = `ForzaDash port error: ${message}\nUpdate the port in Settings, then restart ForzaDash.`;
+  console.error(`\n${fullMessage}\n`);
+  if (process.versions.electron) {
+    throw new Error(fullMessage);
+  }
   process.exit(1);
 }
 
@@ -140,6 +181,20 @@ let g29LastLedSetting = null;
 let g29LastWriteAt = 0;
 let g29UnavailableLogged = false;
 let g29ConnectBlinkActive = false;
+let g29NextConnectAttemptAt = 0;
+const G29_RECONNECT_INTERVAL_MS = 5000;
+const TELEMETRY_BROADCAST_INTERVAL_MS = 33;
+let telemetryBroadcastTimer = null;
+let diagnosticsLastRawCount = 0;
+let diagnosticsLastParsedCount = 0;
+let diagnosticsBroadcastCount = 0;
+let diagnosticsSkippedClientCount = 0;
+let diagnosticsHidScanCount = 0;
+let diagnosticsHidScanMaxMs = 0;
+let diagnosticsPacketProcessMaxMs = 0;
+let diagnosticsExpectedTickAt = Date.now() + DIAGNOSTICS_INTERVAL_MS;
+let diagnosticsLastCpuUsage = process.cpuUsage();
+let diagnosticsLastCpuAt = Date.now();
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -148,7 +203,11 @@ function clamp(value, min, max) {
 function findG29Path() {
   if (!HID) return "";
 
+  const startedAt = Date.now();
   const devices = HID.devices();
+  const elapsedMs = Date.now() - startedAt;
+  diagnosticsHidScanCount += 1;
+  diagnosticsHidScanMaxMs = Math.max(diagnosticsHidScanMaxMs, elapsedMs);
   const wheel = devices.find(
     (device) =>
       device.vendorId === G29_VENDOR_ID &&
@@ -163,6 +222,10 @@ function findG29Path() {
 function connectG29Leds() {
   if (!G29_LEDS_ENABLED || !HID || g29Device) return g29Device;
 
+  const now = Date.now();
+  if (now < g29NextConnectAttemptAt) return null;
+  g29NextConnectAttemptAt = now + G29_RECONNECT_INTERVAL_MS;
+
   const devicePath = findG29Path();
   if (!devicePath) {
     if (!g29UnavailableLogged) {
@@ -174,6 +237,7 @@ function connectG29Leds() {
 
   try {
     g29Device = new HID.HID(devicePath);
+    g29NextConnectAttemptAt = 0;
     g29UnavailableLogged = false;
     console.log("Logitech G29 LED output connected");
     if (G29_CONNECT_BLINK_ENABLED) {
@@ -336,10 +400,9 @@ function deriveFuelMetrics(telemetry) {
   return derived;
 }
 
-function parseForzaPacket(data) {
-  if (data.length < 324) return null;
+function normalizeForzaTelemetry(parsed, rawPacketSize = 0) {
+  if (!parsed || typeof parsed !== "object") return null;
   try {
-    const parsed = parseForzaDataOut([...data]);
     const {
       IsRaceOn: isRaceOn,
       TimestampMS: timestampMs,
@@ -430,7 +493,7 @@ function parseForzaPacket(data) {
 
     return {
       timestamp: Date.now(),
-      rawPacketSize: data.length,
+      rawPacketSize,
       rawCount,
       parsedCount,
       lastSender,
@@ -541,6 +604,21 @@ function parseForzaPacket(data) {
 const telemetryServer = http.createServer((request, response) => {
   const url = new URL(request.url || "/", `http://127.0.0.1:${WS_PORT}`);
 
+  if (url.pathname === "/api/debug-log" && request.method === "GET") {
+    response.writeHead(200, {
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json; charset=utf-8",
+    });
+    response.end(
+      JSON.stringify({
+        ok: true,
+        developerMode: DIAGNOSTICS_ENABLED,
+        logFile: diagnosticsPath,
+      }),
+    );
+    return;
+  }
+
   response.writeHead(404, {
     "Access-Control-Allow-Origin": "*",
     "Content-Type": "application/json; charset=utf-8",
@@ -550,7 +628,13 @@ const telemetryServer = http.createServer((request, response) => {
 
 const wss = new WebSocketServer({ server: telemetryServer });
 wss.on("connection", (ws) => {
+  diagnosticJson("WS_CLIENT_CONNECTED", { clients: wss.clients.size });
   if (latestTelemetry) ws.send(JSON.stringify(latestTelemetry));
+  ws.on("close", () => {
+    diagnosticJson("WS_CLIENT_DISCONNECTED", {
+      clients: Math.max(wss.clients.size - 1, 0),
+    });
+  });
 });
 
 const udpForwardSocket = UDP_FORWARDING_ENABLED
@@ -576,13 +660,26 @@ function handleListenError(serviceName, port, error) {
 
 function broadcast(payload) {
   const message = JSON.stringify(payload);
+  diagnosticsBroadcastCount += 1;
   for (const client of wss.clients) {
-    if (client.readyState === 1) client.send(message);
+    if (client.readyState === 1 && client.bufferedAmount === 0) {
+      client.send(message);
+    } else if (client.readyState === 1) {
+      diagnosticsSkippedClientCount += 1;
+    }
   }
 }
 
-const udp = dgram.createSocket("udp4");
-udp.on("message", (message, remote) => {
+function scheduleTelemetryBroadcast() {
+  if (telemetryBroadcastTimer) return;
+  telemetryBroadcastTimer = setTimeout(() => {
+    telemetryBroadcastTimer = null;
+    if (latestTelemetry) broadcast(latestTelemetry);
+  }, TELEMETRY_BROADCAST_INTERVAL_MS);
+}
+
+const forzaServer = new ForzaServer(UDP_PORT);
+forzaServer.on("message", (message, remote) => {
   rawCount += 1;
   lastSender = `${remote.address}:${remote.port}`;
 
@@ -602,35 +699,127 @@ udp.on("message", (message, remote) => {
       );
     }
   }
+});
 
-  const telemetry = parseForzaPacket(message);
+forzaServer.on("data", (parsedData) => {
+  const startedAt = Date.now();
+  const telemetry = normalizeForzaTelemetry(parsedData);
   if (!telemetry) return;
   parsedCount += 1;
   const telemetryWithFuel = deriveFuelMetrics(telemetry);
   latestTelemetry = { ...telemetryWithFuel, parsedCount };
   updateG29Leds(latestTelemetry);
-  broadcast(latestTelemetry);
+  scheduleTelemetryBroadcast();
+  diagnosticsPacketProcessMaxMs = Math.max(
+    diagnosticsPacketProcessMaxMs,
+    Date.now() - startedAt,
+  );
 });
+
+diagnosticJson("ForzaDash debug log started", {
+  logFile: diagnosticsPath,
+  bindHost: SERVER_HOST,
+  udpBindHost: "forza-horizon",
+  udpPort: UDP_PORT,
+  wsPort: WS_PORT,
+  uiBroadcastFps: Math.round(1000 / TELEMETRY_BROADCAST_INTERVAL_MS),
+  udpForwarding: UDP_FORWARDING_ENABLED,
+  parser: "forza-horizon",
+  developerMode: DEVELOPER_MODE,
+  g29Enabled: G29_LEDS_ENABLED,
+  g29BlinkEnabled: G29_CONNECT_BLINK_ENABLED,
+  platform: process.platform,
+  node: process.version,
+  cpu: os.cpus()?.[0]?.model || "unknown",
+  ramGb: Math.round(os.totalmem() / 1024 / 1024 / 1024),
+});
+if (DIAGNOSTICS_ENABLED) {
+  console.log(`Telemetry diagnostics: ${diagnosticsPath}`);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  const elapsedMs = Math.max(now - diagnosticsExpectedTickAt + DIAGNOSTICS_INTERVAL_MS, 1);
+  const rawDelta = rawCount - diagnosticsLastRawCount;
+  const parsedDelta = parsedCount - diagnosticsLastParsedCount;
+  const broadcastDelta = diagnosticsBroadcastCount;
+  const lagMs = Math.max(0, now - diagnosticsExpectedTickAt);
+  const cpuUsage = process.cpuUsage();
+  const cpuDeltaMicros =
+    cpuUsage.user +
+    cpuUsage.system -
+    diagnosticsLastCpuUsage.user -
+    diagnosticsLastCpuUsage.system;
+  const cpuElapsedMicros = Math.max((now - diagnosticsLastCpuAt) * 1000, 1);
+  const cpuPercent = Math.max(0, Math.round((cpuDeltaMicros / cpuElapsedMicros) * 100));
+  const memory = process.memoryUsage();
+  let maxBufferedBytes = 0;
+  for (const client of wss.clients) {
+    maxBufferedBytes = Math.max(maxBufferedBytes, client.bufferedAmount || 0);
+  }
+  diagnosticJson("HEALTH", {
+    rawPps: Number(((rawDelta * 1000) / elapsedMs).toFixed(1)),
+    parsedPps: Number(((parsedDelta * 1000) / elapsedMs).toFixed(1)),
+    droppedPps: Number(((diagnosticsSkippedClientCount * 1000) / elapsedMs).toFixed(1)),
+    broadcastPps: Number(((broadcastDelta * 1000) / elapsedMs).toFixed(1)),
+    rawCount,
+    parsedCount,
+    droppedPacketCount: diagnosticsSkippedClientCount,
+    broadcastCount: diagnosticsBroadcastCount,
+    lastSender,
+    wsClients: wss.clients.size,
+    pendingTelemetry: Boolean(telemetryBroadcastTimer),
+    hasLatestRawPacket: rawCount > 0,
+    latestTelemetryAgeMs: latestTelemetry?.timestamp ? now - latestTelemetry.timestamp : null,
+    rssMb: Math.round(memory.rss / 1024 / 1024),
+    heapMb: Math.round(memory.heapUsed / 1024 / 1024),
+    cpuPercent,
+    uiBroadcastFps: Math.round(1000 / TELEMETRY_BROADCAST_INTERVAL_MS),
+    udpForwarding: UDP_FORWARDING_ENABLED,
+    g29Enabled: G29_LEDS_ENABLED,
+    hidScans: diagnosticsHidScanCount,
+    maxHidScanMs: diagnosticsHidScanMaxMs,
+    maxPacketMs: diagnosticsPacketProcessMaxMs,
+    maxBufferedBytes,
+    eventLoopLagMs: lagMs,
+  });
+  diagnosticsLastRawCount = rawCount;
+  diagnosticsLastParsedCount = parsedCount;
+  diagnosticsLastCpuUsage = cpuUsage;
+  diagnosticsLastCpuAt = now;
+  diagnosticsBroadcastCount = 0;
+  diagnosticsSkippedClientCount = 0;
+  diagnosticsHidScanCount = 0;
+  diagnosticsHidScanMaxMs = 0;
+  diagnosticsPacketProcessMaxMs = 0;
+  diagnosticsExpectedTickAt = now + DIAGNOSTICS_INTERVAL_MS;
+}, DIAGNOSTICS_INTERVAL_MS);
 
 telemetryServer.on("error", (error) =>
   handleListenError("Telemetry WebSocket port", WS_PORT, error),
 );
 
-udp.on("error", (error) =>
+forzaServer.on("error", (error) =>
   handleListenError("Forza UDP input port", UDP_PORT, error),
 );
 
-telemetryServer.listen(WS_PORT, LOCAL_HOST, () => {
-  console.log(`Telemetry WebSocket listening on ws://127.0.0.1:${WS_PORT}`);
+telemetryServer.listen(WS_PORT, SERVER_HOST, () => {
+  console.log(`Telemetry WebSocket listening on ws://${SERVER_HOST}:${WS_PORT}`);
+  appendDiagnostic(`Telemetry WebSocket listening on ws://${SERVER_HOST}:${WS_PORT}`);
+  appendDiagnostic(`Debug log path API listening on http://127.0.0.1:${WS_PORT}/api/debug-log`);
 });
 
-udp.bind(UDP_PORT, LOCAL_HOST, () => {
-  console.log(`Forza UDP listening on ${LOCAL_HOST}:${UDP_PORT}`);
+forzaServer.on("listening", () => {
+  console.log(`Forza UDP listening on port ${UDP_PORT} via forza-horizon`);
+  appendDiagnostic(`Forza UDP listening on port ${UDP_PORT} via forza-horizon`);
   if (UDP_FORWARDING_ENABLED) {
-    console.log(
-      `Forza UDP forwarding to ${UDP_FORWARD_PORTS.map((port) => `127.0.0.1:${port}`).join(", ")}`,
-    );
+    const forwardMessage = `Forza UDP forwarding to ${UDP_FORWARD_PORTS.map((port) => `127.0.0.1:${port}`).join(", ")}`;
+    console.log(forwardMessage);
+    appendDiagnostic(forwardMessage);
   } else {
     console.log("Forza UDP forwarding disabled");
+    appendDiagnostic("Forza UDP forwarding disabled");
   }
 });
+
+forzaServer.bind();

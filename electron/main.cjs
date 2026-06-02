@@ -1,8 +1,59 @@
-const { app, BrowserWindow, Menu, Tray, shell, powerSaveBlocker } = require("electron");
+const electron = require("electron");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
+const os = require("node:os");
 const path = require("node:path");
+const { app, BrowserWindow, Menu, Tray, dialog, shell, powerSaveBlocker } = electron;
+
+function writeStartupLog(message) {
+  try {
+    const basePath =
+      app?.getPath?.("userData") || path.join(process.env.TEMP || process.cwd(), "ForzaDash");
+    fs.mkdirSync(basePath, { recursive: true });
+    fs.appendFileSync(
+      path.join(basePath, "forzadash-startup.log"),
+      `[${new Date().toISOString()}] ${message}\n`,
+    );
+  } catch {}
+}
+
+function writeRendererLog(message) {
+  if (!isDeveloperModeEnabled()) return;
+  try {
+    const logPath =
+      process.env.FORZADASH_DEBUG_LOG_PATH ||
+      path.join(
+        process.env.PORTABLE_EXECUTABLE_DIR ||
+          process.env.FORZADASH_LOG_DIR ||
+          process.cwd(),
+        "forzadash-renderer.log",
+      );
+    fs.appendFileSync(
+      logPath,
+      `[${new Date().toISOString()}] CLIENT ${message}\n`,
+    );
+  } catch {}
+}
+
+function isTruthyEnv(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+function isDeveloperModeEnabled() {
+  if (process.env.VITE_DEVELOPER_MODE != null) {
+    return isTruthyEnv(process.env.VITE_DEVELOPER_MODE);
+  }
+  return false;
+}
+
+writeStartupLog(
+  `main starting, electron api: ${app ? "ok" : `missing (${typeof electron})`}`,
+);
+
+if (!app) {
+  throw new Error("Electron app API is unavailable during startup");
+}
 
 const DEFAULT_DASHBOARD_PORT = 5173;
 const LOCAL_HOST = "127.0.0.1";
@@ -46,6 +97,7 @@ function youtubeMusicSession() {
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 let mediaSuspendBlockerId = null;
+writeStartupLog(`single instance lock: ${singleInstanceLock}`);
 
 // Keep media playback stable when app windows lose focus (e.g. alt-tab to game).
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
@@ -55,6 +107,7 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 if (!singleInstanceLock) {
+  writeStartupLog("quitting: single instance lock unavailable");
   app.quit();
 }
 
@@ -102,6 +155,8 @@ const SETTINGS_ENV_MAP = {
   forzaUdpForwardPort: "VITE_FORZA_UDP_FORWARD_PORT",
   forzaUdpForwardPort2: "VITE_FORZA_UDP_FORWARD_PORT_2",
   telemetryWsPort: "VITE_TELEMETRY_WS_PORT",
+  lanAccessEnabled: "VITE_LAN_ACCESS_ENABLED",
+  developerMode: "VITE_DEVELOPER_MODE",
   weatherRegion: "VITE_WEATHER_REGION",
   backgroundColor: "VITE_BACKGROUND_COLOR",
   spotifyClientId: "VITE_SPOTIFY_CLIENT_ID",
@@ -187,6 +242,40 @@ function contentType(filePath) {
   );
 }
 
+function envBool(name, fallback = false) {
+  const value = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!value) return fallback;
+  return ["1", "true", "yes", "on"].includes(value);
+}
+
+function getPreferredLanAddress() {
+  const vpnPattern =
+    /(nord|nordlynx|vpn|tailscale|zerotier|hamachi|radmin|wintun|wireguard|tap|tun|virtualbox|vmware|hyper-v|bluetooth|loopback|vethernet)/i;
+  const interfaces = os.networkInterfaces();
+  const candidates = [];
+
+  for (const [name, addresses] of Object.entries(interfaces)) {
+    if (vpnPattern.test(name)) continue;
+    for (const address of addresses || []) {
+      if (
+        address.family !== "IPv4" ||
+        address.internal ||
+        !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(address.address)
+      ) {
+        continue;
+      }
+      const score =
+        /^192\.168\./.test(address.address) ? 30 :
+        /^10\./.test(address.address) ? 20 :
+        10;
+      candidates.push({ address: address.address, name, score });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return candidates[0] || null;
+}
+
 function cacheHeaders(filePath) {
   const normalized = filePath.replace(/\\/g, "/");
   const isBuiltAsset = normalized.includes("/dist/app/assets/");
@@ -214,6 +303,9 @@ function sendFile(response, filePath) {
 function startDashboardServer() {
   const dashboardRoot = path.join(__dirname, "..", "dist", "app");
   const preferredPort = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
+  const lanAccessEnabled = envBool("VITE_LAN_ACCESS_ENABLED", true);
+  const bindHost = lanAccessEnabled ? "0.0.0.0" : LOCAL_HOST;
+  const lanAddress = getPreferredLanAddress();
 
   webServer = http.createServer((request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${preferredPort}`);
@@ -240,6 +332,46 @@ function startDashboardServer() {
           response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
           response.end(JSON.stringify({ error: "Invalid settings" }));
         }
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/network" && request.method === "GET") {
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      response.end(
+        JSON.stringify({
+          lanAccessEnabled,
+          developerMode: isDeveloperModeEnabled(),
+          dashboardPort: preferredPort,
+          telemetryWsPort: envPort("VITE_TELEMETRY_WS_PORT", 17878),
+          bindHost,
+          lanAddress: lanAddress?.address || "",
+          lanInterface: lanAddress?.name || "",
+          localUrl: `http://127.0.0.1:${preferredPort}/`,
+          lanUrl:
+            lanAccessEnabled && lanAddress
+              ? `http://${lanAddress.address}:${preferredPort}/`
+              : "",
+        }),
+      );
+      return;
+    }
+
+    if (url.pathname === "/api/renderer-log" && request.method === "POST") {
+      if (!isDeveloperModeEnabled()) {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 4000) request.destroy();
+      });
+      request.on("end", () => {
+        writeRendererLog(body.replace(/[\r\n]+/g, " ").slice(0, 4000));
+        response.writeHead(204);
+        response.end();
       });
       return;
     }
@@ -444,36 +576,33 @@ function startDashboardServer() {
   });
 
   return new Promise((resolve, reject) => {
-    let port = preferredPort;
-    const maxPort = preferredPort + 20;
-
-    function listen() {
-      webServer.once("error", onError);
-      webServer.listen(port, LOCAL_HOST, () => {
-        webServer.off("error", onError);
-        if (port !== preferredPort) {
-          console.warn(
-            `Dashboard port ${preferredPort} was busy, using ${port} instead.`,
-          );
-        }
-        resolve(`http://127.0.0.1:${port}/`);
-        console.log(`Dashboard listening on http://127.0.0.1:${port}/`);
-      });
-    }
+    webServer.once("error", onError);
+    webServer.listen(preferredPort, bindHost, () => {
+      webServer.off("error", onError);
+      resolve(`http://127.0.0.1:${preferredPort}/`);
+      console.log(`Dashboard listening on http://127.0.0.1:${preferredPort}/`);
+      if (lanAccessEnabled && lanAddress) {
+        console.log(`Dashboard LAN URL http://${lanAddress.address}:${preferredPort}/`);
+      }
+    });
 
     function onError(error) {
       webServer.off("error", onError);
-      if (error?.code === "EADDRINUSE" && port < maxPort) {
-        console.warn(`Dashboard port ${port} is busy, trying ${port + 1}...`);
-        port += 1;
-        listen();
+      if (error?.code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `Dashboard port ${preferredPort} is already in use. Close the other app or change the Dashboard port in Settings.`,
+          ),
+        );
         return;
       }
       reject(error);
     }
-
-    listen();
   });
+}
+
+function getServerEntryPath() {
+  return path.join(app.getAppPath(), "server.cjs");
 }
 
 function createTray(dashboardUrl) {
@@ -513,6 +642,7 @@ function createDashboardWindow(dashboardUrl) {
     },
   });
 
+  dashboardWindow.setAspectRatio(16 / 10);
   dashboardWindow.loadURL(dashboardUrl);
   dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url).catch(() => {});
@@ -531,6 +661,7 @@ function createDashboardWindow(dashboardUrl) {
   });
   dashboardWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error("Dashboard renderer stopped", details);
+    writeRendererLog(`RENDERER_GONE ${JSON.stringify(details)}`);
   });
   dashboardWindow.once("ready-to-show", () => {
     dashboardWindow.show();
@@ -1218,16 +1349,29 @@ if (singleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    writeStartupLog("app ready");
     app.setAppUserModelId("com.forzadash.app");
     if (!powerSaveBlocker.isStarted(mediaSuspendBlockerId ?? -1)) {
       mediaSuspendBlockerId = powerSaveBlocker.start("prevent-app-suspension");
     }
     loadRuntimeEnv();
     applySavedSettingsToEnv();
-    require(path.join(__dirname, "..", "server.cjs"));
+    const serverEntryPath = getServerEntryPath();
+    writeStartupLog(`loading server: ${serverEntryPath}`);
+    require(serverEntryPath);
     dashboardUrl = await startDashboardServer();
+    writeStartupLog(`dashboard url: ${dashboardUrl}`);
     createTray(dashboardUrl);
     createDashboardWindow(dashboardUrl);
+    writeStartupLog("dashboard window created");
+  }).catch((error) => {
+    writeStartupLog(`startup failed: ${error?.stack || error?.message || error}`);
+    console.error(error);
+    dialog.showErrorBox(
+      "ForzaDash startup failed",
+      error?.message || "ForzaDash could not start.",
+    );
+    app.quit();
   });
 }
 

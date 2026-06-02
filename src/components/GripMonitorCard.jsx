@@ -42,7 +42,7 @@ export default function GripMonitorCard({ telemetry = {} }) {
   const avgSlip = slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
   const gripIndex = clamp(Math.round(100 - avgSlip * 80), 0, 100);
 
-  const status = gripIndex < 40 ? "NO CONTROL" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
+  const status = gripIndex < 40 ? "LOST" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
   const statusClass = gripIndex < 40 ? "danger" : gripIndex < 85 ? "warn" : "good";
 
   const rows = [
@@ -60,7 +60,11 @@ export default function GripMonitorCard({ telemetry = {} }) {
 
         <div className="grip-slip-list">
           {rows.map(([label, value]) => (
-            <div className="grip-slip-row" key={label} style={{ "--slip": `${value}%` }}>
+            <div
+              className={`grip-slip-row ${value >= 65 ? "danger" : value >= 35 ? "warn" : ""}`}
+              key={label}
+              style={{ "--slip": `${value}%` }}
+            >
               <span>{label}</span>
               <i><em /></i>
               <strong>{value}%</strong>
