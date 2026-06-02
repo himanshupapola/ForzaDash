@@ -8,7 +8,7 @@ Ideas or feedback: `@boring_coder` on Telegram.
 
 ## Demo
 
-https://github.com/user-attachments/assets/06b40da0-ab47-4fc6-8be9-ff057543def3
+https://github.com/user-attachments/assets/ff067952-1c81-4f3e-993f-3d1b6693c927
 
 ## Download
 
