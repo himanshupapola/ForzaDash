@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Timer } from "lucide-react";
+import { MapPin, Timer } from "lucide-react";
 import optimizedMap from "../assets/map-nav.jpg";
 import "./NavigationPanel.css";
 
@@ -14,6 +14,7 @@ const GPS_MAP_CENTER_OFFSET_Y = 0;
 const MAP_STATE_KEY = "forzadash_last_map_state";
 const MAP_POSITION_SMOOTHING = 0.24;
 const MAP_ROTATION_SMOOTHING = 0.18;
+const COMPASS_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 const GPS_MAP_STYLE = {
   background: "#02080c",
@@ -94,6 +95,27 @@ function storeMapState(mapState) {
 
 function telemetrySourceKey(telemetry) {
   return `${telemetry?.status || ""}:${telemetry?.isRaceOn ?? ""}:${telemetry?.lastSender || ""}`;
+}
+
+function headingFromYaw(yaw) {
+  if (!Number.isFinite(yaw)) {
+    return {
+      label: "--",
+      degrees: 0,
+      degreesLabel: "---",
+    };
+  }
+
+  const degrees = ((yaw * 180) / Math.PI + 360) % 360;
+  const directionIndex =
+    Math.round(degrees / (360 / COMPASS_DIRECTIONS.length)) %
+    COMPASS_DIRECTIONS.length;
+
+  return {
+    label: COMPASS_DIRECTIONS[directionIndex],
+    degrees,
+    degreesLabel: `${Math.round(degrees).toString().padStart(3, "0")} DEG`,
+  };
 }
 
 export default React.memo(function NavigationPanel({
@@ -214,6 +236,7 @@ export default React.memo(function NavigationPanel({
   const drivenKm = driveStatsRef.current.distanceKm.toFixed(1);
   const mapImage =
     mapQuality === "full" && fullQualityMap ? fullQualityMap : optimizedMap;
+  const heading = headingFromYaw(displayYaw);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,7 +288,7 @@ export default React.memo(function NavigationPanel({
 
         <div
           className={`live-map-marker ${online && hasPosition ? "active" : ""}`}
-          style={{ transform: "translate(-50%, -50%)" }}
+          style={{ transform: "translate(-50%, -56%)" }}
           aria-hidden="true"
         >
           <svg viewBox="0 0 24 24">
@@ -281,7 +304,13 @@ export default React.memo(function NavigationPanel({
             <Timer size={16} /> {driveMinutes} min
           </span>
 
-          <span className="navigation-muted">{drivenKm} km</span>
+          <span className="navigation-heading" aria-label={`Heading ${heading.degreesLabel}`}>
+            {heading.label}
+          </span>
+
+          <span className="navigation-muted">
+            <MapPin size={15} /> {drivenKm} km
+          </span>
         </div>
       </div>
     </section>

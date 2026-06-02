@@ -324,7 +324,7 @@
   bottom: 12px;
   z-index: 7;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   padding: 9px 12px 0;
@@ -350,6 +350,18 @@
 
 .navigation-stats span:last-child {
   justify-content: flex-end;
+}
+
+.navigation-heading {
+  min-width: 28px;
+  justify-content: center !important;
+  color: #f4fbff;
+  font-size: clamp(13px, 0.9vw, 16px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.82),
+    0 0 10px rgba(37, 200, 255, 0.24);
 }
 
 .navigation-mode {

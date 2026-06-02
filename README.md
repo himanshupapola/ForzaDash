@@ -141,7 +141,7 @@ Build the portable Windows EXE:
 ```bat
 npm run dist:win
 ```
-
+waht about lgoitc part 
 The EXE is created at `dist/ForzaDash.exe`.
 
 Build Linux AppImage and Debian package from a Linux environment:
