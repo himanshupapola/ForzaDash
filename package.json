@@ -7,7 +7,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"node server.cjs\" \"vite\"",
-    "dev:electron": "npm run build && electron .",
+    "dev:electron": "set FORZADASH_DEV_API_PORT=5174&& concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && set FORZADASH_DASHBOARD_URL=http://127.0.0.1:5173/&& electron .\"",
+    "dev:electron:static": "npm run build && electron .",
     "web": "vite",
     "server": "node server.cjs",
     "electron": "electron .",

@@ -179,6 +179,10 @@ function readSettingsFile() {
   }
 }
 
+function isDemoDriveModeEnabled() {
+  return Boolean(readSettingsFile()?.demoDriveMode);
+}
+
 function readElectronLocalStorageSettings() {
   const userDataPath = app.getPath("userData");
   const candidates = [
@@ -249,6 +253,19 @@ function envBool(name, fallback = false) {
   return ["1", "true", "yes", "on"].includes(value);
 }
 
+function devDashboardUrl() {
+  const url = String(process.env.FORZADASH_DASHBOARD_URL || "").trim();
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.toString()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function getPreferredLanAddress() {
   const vpnPattern =
     /(nord|nordlynx|vpn|tailscale|zerotier|hamachi|radmin|wintun|wireguard|tap|tun|virtualbox|vmware|hyper-v|bluetooth|loopback|vethernet)/i;
@@ -302,11 +319,15 @@ function sendFile(response, filePath) {
 }
 
 function startDashboardServer() {
+  const devUrl = devDashboardUrl();
   const dashboardRoot = path.join(__dirname, "..", "dist", "app");
-  const preferredPort = envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
+  const preferredPort = devUrl
+    ? envPort("FORZADASH_DEV_API_PORT", DEFAULT_DASHBOARD_PORT + 1)
+    : envPort("VITE_DASHBOARD_PORT", DEFAULT_DASHBOARD_PORT);
   const lanAccessEnabled = envBool("VITE_LAN_ACCESS_ENABLED", true);
   const bindHost = lanAccessEnabled ? "0.0.0.0" : LOCAL_HOST;
   const lanAddress = getPreferredLanAddress();
+  const dashboardDisplayUrl = devUrl || `http://127.0.0.1:${preferredPort}/`;
 
   webServer = http.createServer((request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${preferredPort}`);
@@ -348,9 +369,9 @@ function startDashboardServer() {
           bindHost,
           lanAddress: lanAddress?.address || "",
           lanInterface: lanAddress?.name || "",
-          localUrl: `http://127.0.0.1:${preferredPort}/`,
+          localUrl: dashboardDisplayUrl,
           lanUrl:
-            lanAccessEnabled && lanAddress
+            !devUrl && lanAccessEnabled && lanAddress
               ? `http://${lanAddress.address}:${preferredPort}/`
               : "",
         }),
@@ -473,7 +494,9 @@ function startDashboardServer() {
     }
 
     if (url.pathname === "/api/youtube-music/status") {
-      getYouTubeMusicStatus()
+      getYouTubeMusicStatus({
+        analyze: url.searchParams.get("analyze") === "1",
+      })
         .then((result) => {
           response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           response.end(JSON.stringify(result));
@@ -580,9 +603,13 @@ function startDashboardServer() {
     webServer.once("error", onError);
     webServer.listen(preferredPort, bindHost, () => {
       webServer.off("error", onError);
-      resolve(`http://127.0.0.1:${preferredPort}/`);
-      console.log(`Dashboard listening on http://127.0.0.1:${preferredPort}/`);
-      if (lanAccessEnabled && lanAddress) {
+      resolve(dashboardDisplayUrl);
+      console.log(
+        devUrl
+          ? `Dashboard dev API listening on http://127.0.0.1:${preferredPort}/`
+          : `Dashboard listening on http://127.0.0.1:${preferredPort}/`,
+      );
+      if (!devUrl && lanAccessEnabled && lanAddress) {
         console.log(`Dashboard LAN URL http://${lanAddress.address}:${preferredPort}/`);
       }
     });
@@ -900,6 +927,250 @@ async function installYouTubeAudioMode(window) {
   `).catch(() => {});
 }
 
+async function installYouTubeBeatAnalyzer(window, enabled = false) {
+  if (!window || window.isDestroyed()) return;
+  if (!enabled || !isDemoDriveModeEnabled()) {
+    await window.webContents.executeJavaScript(`
+      (() => {
+        if (window.forzaDashBeatAnalyzer?.timer) {
+          clearInterval(window.forzaDashBeatAnalyzer.timer);
+        }
+        window.forzaDashBeatAnalyzer = {
+          supported: true,
+          energy: 0,
+          intensity: 0,
+          bass: 0,
+          mid: 0,
+          treble: 0,
+          beat: 0,
+          drop: 0,
+          beatAt: 0,
+          dropAt: 0,
+          at: Date.now(),
+          confidence: 0,
+        };
+        return true;
+      })();
+    `).catch(() => {});
+    return;
+  }
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const media = document.querySelector("video, audio");
+      if (!media) return false;
+      if (window.forzaDashBeatAnalyzer?.media === media && window.forzaDashBeatAnalyzer?.version === 2) {
+        window.forzaDashAudioContext?.resume?.().catch?.(() => {});
+        return true;
+      }
+
+      if (window.forzaDashBeatAnalyzer?.timer) {
+        clearInterval(window.forzaDashBeatAnalyzer.timer);
+      }
+
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return false;
+        const context = window.forzaDashAudioContext || new AudioContext();
+        window.forzaDashAudioContext = context;
+
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.54;
+
+        let source = window.forzaDashMediaSource;
+        if (!source || window.forzaDashBeatAnalyzer?.media !== media) {
+          source = context.createMediaElementSource(media);
+          window.forzaDashMediaSource = source;
+        }
+
+        try { source.disconnect(); } catch {}
+        source.connect(analyser);
+        analyser.connect(context.destination);
+
+        const bins = new Uint8Array(analyser.frequencyBinCount);
+        const timeBins = new Uint8Array(analyser.fftSize);
+        const previousBins = new Uint8Array(analyser.frequencyBinCount);
+        const range = {
+          rms: { floor: 0.004, peak: 0.14, seen: false },
+          bass: { floor: 0.004, peak: 0.16, seen: false },
+          mid: { floor: 0.004, peak: 0.13, seen: false },
+          treble: { floor: 0.004, peak: 0.1, seen: false },
+          flux: { floor: 0.002, peak: 0.08, seen: false },
+        };
+        const state = {
+          version: 2,
+          media,
+          context,
+          analyser,
+          bins,
+          timeBins,
+          range,
+          fastEnergy: 0,
+          slowEnergy: 0,
+          fastBass: 0,
+          slowBass: 0,
+          quietScore: 0,
+          lastBeatPerf: 0,
+          energy: 0,
+          intensity: 0,
+          bass: 0,
+          mid: 0,
+          treble: 0,
+          beat: 0,
+          drop: 0,
+          beatAt: 0,
+          dropAt: 0,
+          confidence: 0,
+          supported: true,
+        };
+        window.forzaDashBeatAnalyzer = state;
+
+        const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+        const lerp = (from, to, amount) => from + (to - from) * amount;
+        const binForHz = (hz) =>
+          clamp(Math.round(hz / (context.sampleRate / analyser.fftSize)), 0, bins.length - 1);
+        const readBand = (startHz, endHz) => {
+          const start = binForHz(startHz);
+          const end = binForHz(endHz);
+          let total = 0;
+          let count = 0;
+          for (let index = start; index <= end && index < bins.length; index += 1) {
+            total += bins[index] / 255;
+            count += 1;
+          }
+          return count ? total / count : 0;
+        };
+        const normalize = (name, rawValue) => {
+          const raw = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
+          const item = range[name];
+          if (!item.seen) {
+            item.floor = Math.max(0, raw * 0.55);
+            item.peak = Math.max(raw + 0.035, raw * 1.35, item.peak);
+            item.seen = true;
+          }
+
+          item.floor =
+            raw < item.floor
+              ? lerp(item.floor, raw, 0.34)
+              : lerp(item.floor, raw, 0.0025);
+          item.peak =
+            raw > item.peak
+              ? lerp(item.peak, raw, 0.44)
+              : lerp(item.peak, raw, 0.006);
+
+          if (item.peak < item.floor + 0.035) item.peak = item.floor + 0.035;
+          return clamp((raw - item.floor) / (item.peak - item.floor), 0, 1);
+        };
+
+        const tick = () => {
+          if (window.forzaDashBeatAnalyzer !== state) return;
+          analyser.getByteFrequencyData(bins);
+          analyser.getByteTimeDomainData(timeBins);
+
+          let timeTotal = 0;
+          for (let index = 0; index < timeBins.length; index += 1) {
+            const centered = (timeBins[index] - 128) / 128;
+            timeTotal += centered * centered;
+          }
+          const rmsRaw = Math.sqrt(timeTotal / timeBins.length);
+          const bassRaw = readBand(45, 160);
+          const midRaw = readBand(170, 2100);
+          const trebleRaw = readBand(2200, 9000);
+
+          let fluxRaw = 0;
+          let fluxCount = 0;
+          const fluxStart = binForHz(45);
+          const fluxEnd = binForHz(3600);
+          for (let index = fluxStart; index <= fluxEnd && index < bins.length; index += 1) {
+            fluxRaw += Math.max(0, (bins[index] - previousBins[index]) / 255);
+            previousBins[index] = bins[index];
+            fluxCount += 1;
+          }
+          fluxRaw = fluxCount ? fluxRaw / fluxCount : 0;
+
+          const rms = normalize("rms", rmsRaw);
+          const bass = normalize("bass", bassRaw);
+          const mid = normalize("mid", midRaw);
+          const treble = normalize("treble", trebleRaw);
+          const flux = normalize("flux", fluxRaw);
+          const now = performance.now();
+
+          state.fastEnergy = lerp(state.fastEnergy, rms, 0.28);
+          state.slowEnergy = lerp(state.slowEnergy, rms, 0.035);
+          state.fastBass = lerp(state.fastBass, bass, 0.36);
+          state.slowBass = lerp(state.slowBass, bass, 0.045);
+          state.quietScore = clamp(
+            state.quietScore + (state.slowEnergy < 0.33 ? 0.018 : -0.012),
+            0,
+            1,
+          );
+
+          const bassTransient = clamp((state.fastBass - state.slowBass) * 3.2, 0, 1);
+          const energyTransient = clamp((state.fastEnergy - state.slowEnergy) * 2.4, 0, 1);
+          const beatCandidate = clamp(
+            bassTransient * 0.58 + flux * 0.36 + bass * 0.2 + energyTransient * 0.26,
+            0,
+            1,
+          );
+          const canTrigger = now - state.lastBeatPerf > 165;
+          state.beat = Math.max(0, state.beat * 0.72);
+          if (beatCandidate > 0.42 && canTrigger) {
+            state.beat = beatCandidate;
+            state.beatAt = Date.now();
+            state.lastBeatPerf = now;
+          }
+
+          const dropCandidate = clamp(
+            (beatCandidate * 0.56 + energyTransient * 0.5 + bass * 0.22) *
+              (0.42 + state.quietScore * 0.78),
+            0,
+            1,
+          );
+          state.drop = Math.max(state.drop * 0.82, dropCandidate > 0.44 ? dropCandidate : 0);
+          if (state.drop > 0.5) state.dropAt = Date.now();
+
+          const confidence = clamp(rmsRaw * 14 + bassRaw * 5 + midRaw * 3, 0, 1);
+          state.confidence = confidence;
+          state.energy = rms;
+          state.intensity = clamp(
+            state.slowEnergy * 0.42 +
+              state.fastEnergy * 0.28 +
+              bass * 0.14 +
+              mid * 0.1 +
+              state.beat * 0.08,
+            0,
+            1,
+          );
+          state.bass = bass;
+          state.mid = mid;
+          state.treble = treble;
+          state.at = Date.now();
+
+          if (media.paused || media.muted || media.volume <= 0) {
+            state.beat = 0;
+            state.drop = 0;
+            state.intensity = 0;
+          }
+        };
+
+        context.resume?.().catch?.(() => {});
+        tick();
+        state.timer = setInterval(tick, 45);
+        return true;
+      } catch (error) {
+        window.forzaDashBeatAnalyzer = {
+          version: 2,
+          media,
+          supported: false,
+          error: error?.message || String(error),
+          at: Date.now(),
+        };
+        return false;
+      }
+    })();
+  `).catch(() => {});
+}
+
 async function applyYouTubeVolume(window) {
   if (!window || window.isDestroyed()) return;
   await window.webContents.executeJavaScript(`
@@ -1187,6 +1458,7 @@ const youtubeStatusScript = `(() => {
     const progress = duration > 0 ? Math.min(duration, Math.max(0, rawProgress)) : 0;
     const volume = Number.isFinite(media?.volume) ? Math.round(media.volume * 100) : 100;
     const muted = Boolean(media?.muted);
+    const analyzer = window.forzaDashBeatAnalyzer || {};
     return {
       ok: true,
       available: true,
@@ -1199,6 +1471,21 @@ const youtubeStatusScript = `(() => {
       progress,
       volume,
       muted,
+      audio: {
+        supported: analyzer.supported !== false,
+        energy: Number(analyzer.energy) || 0,
+        intensity: Number(analyzer.intensity) || 0,
+        bass: Number(analyzer.bass) || 0,
+        mid: Number(analyzer.mid) || 0,
+        treble: Number(analyzer.treble) || 0,
+        beat: Number(analyzer.beat) || 0,
+        drop: Number(analyzer.drop) || 0,
+        beatAt: Number(analyzer.beatAt) || 0,
+        dropAt: Number(analyzer.dropAt) || 0,
+        at: Number(analyzer.at) || 0,
+        confidence: Number(analyzer.confidence) || 0,
+        error: analyzer.error || ""
+      },
       isPlaying:
         typeof eventState.isPlaying === "boolean"
           ? eventState.isPlaying
@@ -1221,7 +1508,7 @@ const youtubeStatusScript = `(() => {
   }
 })()`;
 
-async function getYouTubeMusicStatus() {
+async function getYouTubeMusicStatus(options = {}) {
   if (!youtubeMusicWindow || youtubeMusicWindow.isDestroyed()) {
     return { ok: true, available: false, visible: false, isPlaying: false };
   }
@@ -1241,6 +1528,7 @@ async function getYouTubeMusicStatus() {
   }
   await installYouTubePlayerEventBridge(youtubeMusicWindow);
   await installYouTubeAudioMode(youtubeMusicWindow);
+  await installYouTubeBeatAnalyzer(youtubeMusicWindow, Boolean(options.analyze));
   await applyYouTubeVolume(youtubeMusicWindow);
   const status = await youtubeMusicWindow.webContents.executeJavaScript(youtubeStatusScript);
   return {

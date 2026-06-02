@@ -253,6 +253,197 @@ function createDemoTelemetry(frame) {
   };
 }
 
+function createMusicTelemetry(frame, music = {}, drive = {}) {
+  const now = Date.now();
+  const playing = Boolean(music.playing);
+  const duration = Math.max(Number(music.duration) || 200000, 1);
+  const progress =
+    (Number(music.progress) || 0) +
+    (playing && music.updatedAt ? Math.max(0, now - music.updatedAt) : 0);
+  const progressRatio = (progress % duration) / duration;
+  const dt = clamp((now - (drive.at || now)) / 1000, 0.045, 0.18);
+  drive.at = now;
+
+  const titleSeed = String(`${music.provider || ""}:${music.title || ""}`)
+    .split("")
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const trackKey = `${music.provider || ""}:${music.title || ""}:${duration}`;
+  if (drive.trackKey !== trackKey) {
+    drive.trackKey = trackKey;
+    drive.speedKmh = Math.min(Number(drive.speedKmh) || 0, 42);
+    drive.rpm = 900;
+    drive.intensity = 0;
+    drive.bass = 0;
+    drive.beatHold = 0;
+    drive.dropHold = 0;
+    drive.prevIntensity = 0;
+  }
+
+  const tempo = 92 + (titleSeed % 54);
+  const beatMs = 60000 / tempo;
+  const phase = ((progress || frame * beatMs * 0.5) % beatMs) / beatMs;
+  const barPhase = ((progress || frame * beatMs * 0.5) % (beatMs * 4)) / (beatMs * 4);
+  const sectionPhase =
+    ((progress || frame * beatMs * 0.5) % (beatMs * 16)) / (beatMs * 16);
+  const downBeat = Math.max(0, 1 - phase * 3.8) ** 2;
+  const halfBeat = Math.max(0, 1 - Math.abs(phase - 0.5) * 5.5) ** 2;
+  const barKick = Math.max(0, 1 - barPhase * 5.8) ** 2;
+  const dropHit = Math.max(0, 1 - Math.abs(sectionPhase - 0.5) * 18) ** 2;
+  const audio = music.audio || {};
+  const audioConfidence = clamp(Number(audio.confidence) || 0, 0, 1);
+  const audioFresh =
+    Boolean(audio.at) && now - Number(audio.at) < 650 && audioConfidence > 0.08;
+  const audioEnergy = audioFresh
+    ? clamp(Number(audio.intensity ?? audio.energy) || 0, 0, 1)
+    : 0;
+  const audioBass = audioFresh ? clamp(Number(audio.bass) || 0, 0, 1) : 0;
+  const audioBeat = audioFresh ? clamp(Number(audio.beat) || 0, 0, 1) : 0;
+  const audioDrop = audioFresh ? clamp(Number(audio.drop) || 0, 0, 1) : 0;
+  const liveBeatAge = Number(audio.beatAt) ? now - Number(audio.beatAt) : 9999;
+  const liveDropAge = Number(audio.dropAt) ? now - Number(audio.dropAt) : 9999;
+  const liveBeatHit = audioFresh ? clamp(1 - liveBeatAge / 240, 0, 1) ** 1.65 : 0;
+  const liveDropHit = audioFresh ? clamp(1 - liveDropAge / 620, 0, 1) ** 1.4 : 0;
+  const buildRise = clamp(sectionPhase / 0.5, 0, 1) ** 1.65;
+  const postDropRun = sectionPhase > 0.5 ? 1 - (sectionPhase - 0.5) * 0.55 : 0;
+  const sectionLift = clamp(buildRise * 0.58 + postDropRun * 0.42, 0, 1);
+  const waveA = (Math.sin(frame * 0.18 + titleSeed * 0.01) + 1) / 2;
+  const waveB = (Math.sin(frame * 0.073 + progressRatio * Math.PI * 4) + 1) / 2;
+  const waveC = (Math.sin(frame * 0.031 + titleSeed * 0.017) + 1) / 2;
+  const fallbackIntensity = clamp(
+    0.16 + sectionLift * 0.38 + downBeat * 0.14 + barKick * 0.1 + waveA * 0.1,
+    0,
+    0.86,
+  );
+  const targetIntensity = playing
+    ? audioFresh
+      ? clamp(audioEnergy ** 1.18, 0, 1)
+      : fallbackIntensity
+    : 0;
+  const beat = playing
+    ? audioFresh
+      ? Math.max(audioBeat, liveBeatHit)
+      : clamp(downBeat * 0.7 + barKick * 0.35, 0, 1)
+    : 0;
+  const drop = playing
+    ? audioFresh
+      ? Math.max(audioDrop, liveDropHit)
+      : dropHit
+    : 0;
+  const bass = playing ? (audioFresh ? audioBass : clamp(0.25 + downBeat * 0.55, 0, 1)) : 0;
+  const responseUp = targetIntensity > (drive.intensity || 0) ? 0.2 : 0.08;
+  drive.intensity = (drive.intensity || 0) + (targetIntensity - (drive.intensity || 0)) * responseUp;
+  drive.bass = (drive.bass || 0) + (bass - (drive.bass || 0)) * 0.26;
+  drive.beatHold = Math.max((drive.beatHold || 0) * Math.exp(-dt * 8.5), beat);
+  drive.dropHold = Math.max((drive.dropHold || 0) * Math.exp(-dt * 3.4), drop);
+
+  const intensityFall = Math.max(0, (drive.prevIntensity || 0) - drive.intensity);
+  drive.prevIntensity = drive.intensity;
+  const energy = drive.intensity;
+  const accent = drive.beatHold;
+  const launch = drive.dropHold;
+  const maxRpm = 9000;
+  const speedTarget = playing
+    ? clamp(
+        12 +
+          energy ** 1.55 * 220 +
+          drive.bass * 24 +
+          accent * 22 +
+          launch ** 1.18 * 72 +
+          waveC * (audioFresh ? 5 : 14),
+        0,
+        334,
+      )
+    : 0;
+  const speedResponse =
+    speedTarget > (drive.speedKmh || 0)
+      ? 1 - Math.exp(-(2.6 + launch * 4.4 + accent * 1.8) * dt)
+      : 1 - Math.exp(-(1.15 + intensityFall * 7.5) * dt);
+  drive.speedKmh =
+    (drive.speedKmh || 0) + (speedTarget - (drive.speedKmh || 0)) * speedResponse;
+  if (!playing && drive.speedKmh < 0.4) drive.speedKmh = 0;
+  const speedKmh = clamp(drive.speedKmh, 0, 334);
+  const gear = playing ? clamp(Math.floor(speedKmh / 43) + 1, 1, 8) : 1;
+  const gearBaseSpeed = (gear - 1) * 43;
+  const gearProgress = clamp((speedKmh - gearBaseSpeed) / 43, 0, 1);
+  const rpmTarget = playing
+    ? clamp(
+        1050 +
+          gearProgress * 5200 +
+          energy * 850 +
+          drive.bass * 1050 +
+          accent * 1300 +
+          launch * 900,
+        850,
+        maxRpm,
+      )
+    : 900;
+  const rpmResponse = 1 - Math.exp(-(7.2 + accent * 5 + launch * 2.5) * dt);
+  drive.rpm = (drive.rpm || rpmTarget) + (rpmTarget - (drive.rpm || rpmTarget)) * rpmResponse;
+  const rpm = clamp(drive.rpm, 850, maxRpm);
+  const braking = clamp(
+    intensityFall * 340 + Math.max(0, speedKmh - speedTarget) * 0.62,
+    0,
+    180,
+  );
+  const throttle = playing
+    ? clamp(20 + energy * 138 + launch * 86 + accent * 34 + drive.bass * 24 - braking * 0.16, 0, 255)
+    : 0;
+  const brake = playing ? braking : 0;
+  const steer = playing
+    ? Math.round(Math.sin(frame * 0.11 + titleSeed) * (12 + energy * 42 + launch * 12))
+    : 0;
+  const slipPulse = playing ? clamp(drive.bass * 0.5 + accent * 0.42 + launch * 0.8, 0, 1.65) : 0;
+  const tireHeat = 42 + speedKmh * 0.13 + energy * 38 + launch * 26;
+  const suspensionBase = 0.78 + energy * 1.38 + launch * 0.62;
+  const raceTime = progress / 1000;
+  const lapLength = Math.max(duration / 1000 / 3, 58);
+  const lapNumber = playing ? Math.floor(raceTime / lapLength) + 1 : 0;
+  const currentLap = playing ? raceTime % lapLength : 0;
+
+  return {
+    ...fallbackTelemetry,
+    status: playing ? "MUSIC" : "MUSIC IDLE",
+    isRaceOn: playing ? 1 : 0,
+    speedKmh,
+    rpm,
+    maxRpm,
+    gear,
+    powerHp: playing ? clamp(55 + energy * 520 + launch * 310 + speedKmh * 1.15, 0, 980) : 0,
+    torqueNm: playing ? clamp(110 + drive.bass * 270 + energy * 300 + launch * 260, 0, 760) : 0,
+    boostBar: playing ? clamp(energy * 1.05 + drive.bass * 0.55 + launch * 0.8, 0, 2.35) : 0,
+    throttle,
+    brake,
+    clutch: playing ? clamp(6 + accent * 36, 0, 255) : 0,
+    handBrake: playing && launch > 0.82 ? 92 : 0,
+    steer,
+    accelerationX: playing ? Math.sin(frame * 0.23) * (energy * 3.8 + launch * 1.4) : 0,
+    accelerationY: playing ? (speedTarget - speedKmh) * 0.035 + launch * 4.2 + accent * 1.8 : 0,
+    accelerationZ: playing ? Math.cos(frame * 0.18) * (energy * 2.6 + drive.bass) : 0,
+    tireCombinedSlipFrontLeft: slipPulse * (0.8 + waveA * 0.24),
+    tireCombinedSlipFrontRight: slipPulse * (0.76 + waveB * 0.28),
+    tireCombinedSlipRearLeft: slipPulse * (0.9 + accent * 0.2),
+    tireCombinedSlipRearRight: slipPulse * (0.86 + halfBeat * 0.24),
+    tireTempFrontLeft: `${Math.round(tireHeat + waveA * 8)}\u00b0C`,
+    tireTempFrontRight: `${Math.round(tireHeat + waveB * 8)}\u00b0C`,
+    tireTempRearLeft: `${Math.round(tireHeat + accent * 11)}\u00b0C`,
+    tireTempRearRight: `${Math.round(tireHeat + launch * 12)}\u00b0C`,
+    suspensionTravelMetersFrontLeft: suspensionBase + accent * 0.55 + launch * 0.35,
+    suspensionTravelMetersFrontRight: suspensionBase + beat * 0.5,
+    suspensionTravelMetersRearLeft: suspensionBase + waveA * 0.6,
+    suspensionTravelMetersRearRight: suspensionBase + waveB * 0.6,
+    racePosition: playing ? clamp(9 - Math.floor(energy * 4 + launch * 3), 1, 12) : 0,
+    lapNumber,
+    currentRaceTime: raceTime,
+    currentLap,
+    lastLap: lapNumber > 1 ? lapLength + Math.sin(titleSeed) * 1.8 : 0,
+    bestLap: lapNumber > 1 ? lapLength - 1.4 : 0,
+    distanceTraveled: progressRatio * 5200 + Math.max(0, lapNumber - 1) * 5200,
+    rawCount: frame,
+    parsedCount: frame,
+    lastSender: music.provider ? `MUSIC ${String(music.provider).toUpperCase()}` : "MUSIC",
+  };
+}
+
 function readSettings() {
   try {
     return {
@@ -1419,6 +1610,14 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showFullscreenToast, setShowFullscreenToast] = useState(false);
   const [telemetry, setTelemetry] = useState(fallbackTelemetry);
+  const [musicSnapshot, setMusicSnapshot] = useState({
+    provider: "spotify",
+    playing: false,
+    progress: 0,
+    duration: 200000,
+    title: "",
+    updatedAt: Date.now(),
+  });
   const [lastPacketAt, setLastPacketAt] = useState(0);
   const [telemetryServerOnline, setTelemetryServerOnline] = useState(
     Boolean(window.forzaDash?.onTelemetry),
@@ -1428,6 +1627,8 @@ function App() {
   const updateInfo = useUpdateInfo();
   const clock = useClock();
   const demoFrameRef = useRef(0);
+  const musicFrameRef = useRef(0);
+  const musicDriveStateRef = useRef({});
   const lastLiveTelemetryRef = useRef(null);
   const lastPacketAtRef = useRef(lastPacketAt);
   const telemetryServerOnlineRef = useRef(telemetryServerOnline);
@@ -1727,10 +1928,21 @@ function App() {
     }
     const id = setInterval(() => {
       demoFrameRef.current += 1;
+      if (musicSnapshot.playing && musicSnapshot.provider === "youtube") {
+        musicFrameRef.current += 1;
+        setTelemetry(
+          createMusicTelemetry(
+            musicFrameRef.current,
+            musicSnapshot,
+            musicDriveStateRef.current,
+          ),
+        );
+        return;
+      }
       setTelemetry(createDemoTelemetry(demoFrameRef.current));
     }, 100);
     return () => clearInterval(id);
-  }, [settings, online]);
+  }, [settings, online, musicSnapshot]);
 
   useEffect(() => {
     if (!settings.demoDriveMode && !online) {
@@ -1817,6 +2029,8 @@ function App() {
           <MusicPanel
             telemetry={smoothTelemetry}
             onOpenSettings={openSettings}
+            onMusicSnapshot={setMusicSnapshot}
+            telemetryOnline={Boolean(online)}
           />
           <BoostPressurePanel key={`boost-${telemetryUiKey}`} telemetry={smoothTelemetry} />
         </aside>
@@ -2396,6 +2610,8 @@ function RaceTimingPanel({ telemetry }) {
 const MusicPanel = React.memo(function MusicPanel({
   telemetry,
   onOpenSettings,
+  onMusicSnapshot,
+  telemetryOnline = false,
 }) {
   const settings = useSettings();
   const configured = isSpotifyConfigured();
@@ -2506,7 +2722,11 @@ const MusicPanel = React.memo(function MusicPanel({
 
     async function refreshYouTube() {
       try {
-        const response = await fetch("/api/youtube-music/status");
+        const analyzeMusic =
+          settings.demoDriveMode && !telemetryOnline && youtubeMusicPlaying;
+        const response = await fetch(
+          `/api/youtube-music/status${analyzeMusic ? "?analyze=1" : ""}`,
+        );
         const result = await readJsonResponse(
           response,
           "YouTube Music status failed",
@@ -2529,13 +2749,24 @@ const MusicPanel = React.memo(function MusicPanel({
 
     refreshYouTube();
     const intervalMs =
-      youtubeMusicPlaying || youtubeWindowVisible ? 1000 : 2500;
+      settings.demoDriveMode && !telemetryOnline && youtubeMusicPlaying
+        ? 140
+        : youtubeMusicPlaying || youtubeWindowVisible
+          ? 1000
+          : 2500;
     const id = setInterval(refreshYouTube, intervalMs);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [musicProvider, volumeOpen, youtubeMusicPlaying, youtubeWindowVisible]);
+  }, [
+    musicProvider,
+    settings.demoDriveMode,
+    telemetryOnline,
+    volumeOpen,
+    youtubeMusicPlaying,
+    youtubeWindowVisible,
+  ]);
 
   useEffect(() => {
     const wasPlaying = wasYouTubePlayingRef.current;
@@ -2877,6 +3108,29 @@ const MusicPanel = React.memo(function MusicPanel({
     : isCredit
       ? "Switch to Spotify"
       : "Switch to YouTube";
+
+  useEffect(() => {
+    onMusicSnapshot?.({
+      provider: isYouTube ? "youtube" : isCredit ? "race" : "spotify",
+      playing: providerPlaying,
+      progress,
+      duration,
+      title,
+      artist,
+      audio: isYouTube ? youtubeTrack?.audio : null,
+      updatedAt: Date.now(),
+    });
+  }, [
+    artist,
+    duration,
+    isCredit,
+    isYouTube,
+    onMusicSnapshot,
+    progress,
+    providerPlaying,
+    title,
+    youtubeTrack?.audio,
+  ]);
 
   return (
     <section

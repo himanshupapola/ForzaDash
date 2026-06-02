@@ -46,6 +46,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const dashboardPort = envPort(env.VITE_DASHBOARD_PORT, 5173);
   const telemetryWsPort = envPort(env.VITE_TELEMETRY_WS_PORT, 17878);
+  const devApiPort = envPort(env.FORZADASH_DEV_API_PORT, 5174);
   const lanAccessEnabled = envBool(env.VITE_LAN_ACCESS_ENABLED, true);
   const bindHost = lanAccessEnabled ? "0.0.0.0" : "127.0.0.1";
   const lanAddress = getPreferredLanAddress();
@@ -98,6 +99,13 @@ export default defineConfig(({ mode }) => {
       host: bindHost,
       port: dashboardPort,
       strictPort: true,
+      proxy: {
+        "/api/settings": `http://127.0.0.1:${devApiPort}`,
+        "/api/window": `http://127.0.0.1:${devApiPort}`,
+        "/api/youtube-music": `http://127.0.0.1:${devApiPort}`,
+        "/api/update-check": `http://127.0.0.1:${devApiPort}`,
+        "/api/renderer-log": `http://127.0.0.1:${devApiPort}`,
+      },
     },
   };
 });
