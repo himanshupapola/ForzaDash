@@ -1,0 +1,13 @@
+{
+  "name": "forzadash",
+  "version": "5.0.0",
+  "private": true,
+  "author": "Himanshu",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "dependencies": {
+    "forza-horizon": "^1.0.9",
+    "node-hid": "^3.3.0",
+    "ws": "^8.21.0"
+  }
+}

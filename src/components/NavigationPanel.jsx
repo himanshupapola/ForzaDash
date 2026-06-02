@@ -12,6 +12,8 @@ const GPS_MAP_ZOOM = 1.82;
 const GPS_MAP_CENTER_OFFSET_X = 0;
 const GPS_MAP_CENTER_OFFSET_Y = 0;
 const MAP_STATE_KEY = "forzadash_last_map_state";
+const MAP_POSITION_SMOOTHING = 0.24;
+const MAP_ROTATION_SMOOTHING = 0.18;
 
 const GPS_MAP_STYLE = {
   background: "#02080c",
@@ -21,6 +23,15 @@ const GPS_MAP_STYLE = {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function lerp(current, target, amount) {
+  return current + (target - current) * amount;
+}
+
+function lerpAngle(current, target, amount) {
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + delta * amount;
 }
 
 function worldToMapPoint(telemetry) {
@@ -92,7 +103,6 @@ export default React.memo(function NavigationPanel({
     minutes: 0,
     distanceKm: 0,
   });
-
   const lastMapStateRef = useRef(
     readStoredMapState() || {
       point: null,
@@ -101,6 +111,7 @@ export default React.memo(function NavigationPanel({
       hasPosition: false,
     },
   );
+  const displayMapStateRef = useRef(null);
 
   const point = worldToMapPoint(telemetry);
   const liveYaw = Number(telemetry.yaw);
@@ -132,19 +143,37 @@ export default React.memo(function NavigationPanel({
     ? clamp(mapPoint.y, 0, FH6_MAP_IMAGE_SIZE)
     : FH6_MAP_IMAGE_SIZE / 2;
 
+  if (!displayMapStateRef.current) {
+    displayMapStateRef.current = {
+      x: mapX,
+      y: mapY,
+      yaw,
+    };
+  } else {
+    displayMapStateRef.current = {
+      x: lerp(displayMapStateRef.current.x, mapX, MAP_POSITION_SMOOTHING),
+      y: lerp(displayMapStateRef.current.y, mapY, MAP_POSITION_SMOOTHING),
+      yaw: lerpAngle(displayMapStateRef.current.yaw, yaw, MAP_ROTATION_SMOOTHING),
+    };
+  }
+
+  const displayMapX = clamp(displayMapStateRef.current.x, 0, FH6_MAP_IMAGE_SIZE);
+  const displayMapY = clamp(displayMapStateRef.current.y, 0, FH6_MAP_IMAGE_SIZE);
+  const displayYaw = displayMapStateRef.current.yaw;
+
   const centeredMapX = clamp(
-    mapX + GPS_MAP_CENTER_OFFSET_X,
+    displayMapX + GPS_MAP_CENTER_OFFSET_X,
     0,
     FH6_MAP_IMAGE_SIZE,
   );
 
   const centeredMapY = clamp(
-    mapY + GPS_MAP_CENTER_OFFSET_Y,
+    displayMapY + GPS_MAP_CENTER_OFFSET_Y,
     0,
     FH6_MAP_IMAGE_SIZE,
   );
 
-  const mapRotation = Number.isFinite(yaw) ? -yaw : 0;
+  const mapRotation = Number.isFinite(displayYaw) ? -displayYaw : 0;
 
   const now = Date.now();
   const elapsedSeconds = clamp(

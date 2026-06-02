@@ -128,6 +128,8 @@ const SETTINGS_KEY = "forzadash_settings";
 const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
 const YOUTUBE_VOLUME_KEY = "forzadash_youtube_volume";
 const YOUTUBE_MUTED_KEY = "forzadash_youtube_muted";
+const APP_VERSION =
+  typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev";
 const DEFAULT_SETTINGS = {
   weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
@@ -140,6 +142,7 @@ const DEFAULT_SETTINGS = {
   developerMode: DEFAULT_DEVELOPER_MODE,
   spotifyClientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID || "",
   demoDriveMode: false,
+  uiFpsLimit: "60",
   speedUnit: "kmh",
   mapQuality: "full",
   flashMode: false,
@@ -152,6 +155,11 @@ function toDisplaySpeed(speedKmh, speedUnit) {
 
 function speedUnitLabel(speedUnit) {
   return speedUnit === "mph" ? "MPH" : "KM/H";
+}
+
+function uiFrameIntervalMs(value) {
+  const fps = Number(value);
+  return [30, 60, 120].includes(fps) ? 1000 / fps : 1000 / 60;
 }
 
 function createDemoTelemetry(frame) {
@@ -364,6 +372,25 @@ function getControlLossInfo(telemetry) {
     gripIndex,
     wheelspinPct,
     losingControl: gripIndex < 40 || wheelspinPct > 55,
+  };
+}
+
+function getGearLimitFlashInfo(telemetry) {
+  const gear = Number(telemetry?.gear);
+  const rpm = Number(telemetry?.rpm) || 0;
+  const maxRpm = Math.max(Number(telemetry?.maxRpm) || 10000, 1);
+  const throttle = clamp((Number(telemetry?.throttle) || 0) / 100, 0, 1);
+  const speed = Number(telemetry?.speedKmh) || 0;
+  const rpmRatio = clamp(rpm / maxRpm, 0, 1);
+
+  return {
+    rpmRatio,
+    atLimit:
+      Number.isFinite(gear) &&
+      gear > 0 &&
+      speed > 8 &&
+      throttle > 0.35 &&
+      rpmRatio >= 0.92,
   };
 }
 
@@ -1323,10 +1350,8 @@ function useUpdateInfo() {
       }
     }
     load();
-    const id = window.setInterval(load, 5 * 60 * 1000);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
     };
   }, []);
   return updateInfo;
@@ -1353,6 +1378,9 @@ function App() {
     lastRawCount: Number(fallbackTelemetry.rawCount) || 0,
     lastParsedCount: Number(fallbackTelemetry.parsedCount) || 0,
   });
+  const pendingTelemetryRef = useRef(null);
+  const telemetryFrameRef = useRef(0);
+  const lastTelemetryRenderAtRef = useRef(0);
   const fullscreenToastTimerRef = useRef(0);
   const wasFullscreenRef = useRef(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
@@ -1361,6 +1389,7 @@ function App() {
   telemetryServerOnlineRef.current = telemetryServerOnline;
 
   useEffect(() => {
+    if (!rendererDeveloperMode) return undefined;
     reportClientEvent("APP_BOOT", {
       viewport: `${window.innerWidth}x${window.innerHeight}`,
       devicePixelRatio: window.devicePixelRatio,
@@ -1377,6 +1406,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!rendererDeveloperMode) return undefined;
     let frames = 0;
     let slowFrames = 0;
     let worstFrameMs = 0;
@@ -1494,6 +1524,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!rendererDeveloperMode) return undefined;
     let expectedAt = Date.now() + 5000;
     const id = window.setInterval(() => {
       const now = Date.now();
@@ -1510,23 +1541,48 @@ function App() {
 
   useEffect(() => {
     if (window.forzaDash?.onTelemetry) {
-      window.forzaDash
-        .getLatestTelemetry?.()
-        .then((data) => {
-          setTelemetryServerOnline(true);
-          if (data) {
-            setTelemetry(data);
-            lastLiveTelemetryRef.current = data;
-            setLastPacketAt(Date.now());
-          }
-        })
-        .catch(() => setTelemetryServerOnline(false));
-      return window.forzaDash.onTelemetry((data) => {
+      function applyElectronTelemetryFrame(now = performance.now()) {
+        const minInterval = uiFrameIntervalMs(settings.uiFpsLimit);
+        if (now - lastTelemetryRenderAtRef.current < minInterval) {
+          telemetryFrameRef.current = requestAnimationFrame(applyElectronTelemetryFrame);
+          return;
+        }
+        telemetryFrameRef.current = 0;
+        lastTelemetryRenderAtRef.current = now;
+        const data = pendingTelemetryRef.current;
+        pendingTelemetryRef.current = null;
+        if (!data) return;
         setTelemetryServerOnline(true);
         setTelemetry(data);
         lastLiveTelemetryRef.current = data;
         setLastPacketAt(Date.now());
+      }
+
+      window.forzaDash
+        .getLatestTelemetry?.()
+        .then((data) => {
+          if (data) {
+            pendingTelemetryRef.current = data;
+            if (!telemetryFrameRef.current) {
+              telemetryFrameRef.current = requestAnimationFrame(applyElectronTelemetryFrame);
+            }
+          }
+        })
+        .catch(() => setTelemetryServerOnline(false));
+      const unsubscribe = window.forzaDash.onTelemetry((data) => {
+        pendingTelemetryRef.current = data;
+        if (!telemetryFrameRef.current) {
+          telemetryFrameRef.current = requestAnimationFrame(applyElectronTelemetryFrame);
+        }
       });
+      return () => {
+        unsubscribe?.();
+        if (telemetryFrameRef.current) {
+          cancelAnimationFrame(telemetryFrameRef.current);
+          telemetryFrameRef.current = 0;
+        }
+        pendingTelemetryRef.current = null;
+      };
     }
 
     const telemetryPort =
@@ -1534,6 +1590,22 @@ function App() {
     const telemetryWsUrl = getTelemetryWsUrl(telemetryPort);
     reportClientEvent("TELEMETRY_WS_CONNECTING", { url: telemetryWsUrl });
     const socket = new WebSocket(telemetryWsUrl);
+    function applyTelemetryFrame(now = performance.now()) {
+      const minInterval = uiFrameIntervalMs(settings.uiFpsLimit);
+      if (now - lastTelemetryRenderAtRef.current < minInterval) {
+        telemetryFrameRef.current = requestAnimationFrame(applyTelemetryFrame);
+        return;
+      }
+      telemetryFrameRef.current = 0;
+      lastTelemetryRenderAtRef.current = now;
+      const data = pendingTelemetryRef.current;
+      pendingTelemetryRef.current = null;
+      if (!data) return;
+      setTelemetryServerOnline(true);
+      setTelemetry(data);
+      lastLiveTelemetryRef.current = data;
+      setLastPacketAt(Date.now());
+    }
     socket.addEventListener("open", () => {
       reportClientEvent("TELEMETRY_WS_OPEN", { url: telemetryWsUrl });
       setTelemetryServerOnline(true);
@@ -1541,9 +1613,6 @@ function App() {
     socket.addEventListener("message", (event) => {
       try {
         const data = JSON.parse(event.data);
-        setTelemetryServerOnline(true);
-        setTelemetry(data);
-        lastLiveTelemetryRef.current = data;
         const rawCount = Number(data.rawCount) || 0;
         const parsedCount = Number(data.parsedCount) || 0;
         const now = Date.now();
@@ -1565,7 +1634,10 @@ function App() {
           frontendRateRef.current.lastRawCount = rawCount;
           frontendRateRef.current.lastParsedCount = parsedCount;
         }
-        setLastPacketAt(Date.now());
+        pendingTelemetryRef.current = data;
+        if (!telemetryFrameRef.current) {
+          telemetryFrameRef.current = requestAnimationFrame(applyTelemetryFrame);
+        }
       } catch (error) {
         reportClientEvent("WEBSOCKET_PARSE_ERROR", { error: error?.message || String(error) }, "error");
       }
@@ -1578,8 +1650,15 @@ function App() {
       reportClientEvent("WEBSOCKET_CLOSE", { code: event.code, reason: event.reason || "-" });
       setTelemetryServerOnline(false);
     });
-    return () => socket.close();
-  }, [settings.telemetryWsPort]);
+    return () => {
+      socket.close();
+      if (telemetryFrameRef.current) {
+        cancelAnimationFrame(telemetryFrameRef.current);
+        telemetryFrameRef.current = 0;
+      }
+      pendingTelemetryRef.current = null;
+    };
+  }, [settings.telemetryWsPort, settings.uiFpsLimit]);
 
   const online = lastPacketAt && Date.now() - lastPacketAt < 2500;
 
@@ -1608,7 +1687,11 @@ function App() {
       : "NO PACKETS";
   const rpmRatio = clamp(smoothTelemetry.rpm / smoothTelemetry.maxRpm, 0, 1);
   const controlLossInfo = getControlLossInfo(smoothTelemetry);
-  const flashModeActive = Boolean(settings.flashMode && controlLossInfo.losingControl);
+  const gearLimitFlashInfo = getGearLimitFlashInfo(smoothTelemetry);
+  const flashModeActive = Boolean(
+    settings.flashMode &&
+      (controlLossInfo.losingControl || gearLimitFlashInfo.atLimit),
+  );
   const speed = Math.round(
     useSmoothedNumber(toDisplaySpeed(smoothTelemetry.speedKmh, settings.speedUnit), {
       responsiveness: 7.5,
@@ -3076,6 +3159,9 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
       developerMode: Boolean(draft.developerMode),
       spotifyClientId: draft.spotifyClientId.trim(),
       demoDriveMode: telemetryOnline ? false : Boolean(draft.demoDriveMode),
+      uiFpsLimit: ["30", "60", "120"].includes(String(draft.uiFpsLimit))
+        ? String(draft.uiFpsLimit)
+        : DEFAULT_SETTINGS.uiFpsLimit,
       mapQuality: draft.mapQuality === "full" ? "full" : "optimized",
       flashMode: Boolean(draft.flashMode),
     });
@@ -3112,164 +3198,195 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="settings-header">
-          <h2>SETTINGS</h2>
+          <div className="settings-title">
+            <h2>SETTINGS</h2>
+            <span>v{APP_VERSION}</span>
+          </div>
           <button type="button" onClick={onClose} aria-label="Close settings">
             x
           </button>
         </div>
-        <div className="settings-grid">
-          <label>
-            <span>Weather Region</span>
-            <input
-              value={draft.weatherRegion}
-              onChange={(event) =>
-                updateField("weatherRegion", event.target.value)
-              }
-            />
-          </label>
-          <label>
-            <span>Dashboard Port</span>
-            <input
-              inputMode="numeric"
-              value={draft.dashboardPort}
-              onChange={(event) =>
-                updateField("dashboardPort", event.target.value)
-              }
-            />
-          </label>
-          <label>
-            <span>Forza UDP Port</span>
-            <input
-              inputMode="numeric"
-              value={draft.forzaUdpPort}
-              onChange={(event) =>
-                updateField("forzaUdpPort", event.target.value)
-              }
-            />
-          </label>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={Boolean(draft.udpForwardingEnabled)}
-              onChange={(event) =>
-                updateField("udpForwardingEnabled", event.target.checked)
-              }
-            />
-            <span>
-              <strong>UDP Forwarding</strong>
-              <em>Mirror telemetry to forward ports</em>
-            </span>
-            <i aria-hidden="true" />
-          </label>
-          <label>
-            <span>UDP Forward Port</span>
-            <input
-              inputMode="numeric"
-              disabled={!draft.udpForwardingEnabled}
-              value={draft.forzaUdpForwardPort}
-              onChange={(event) =>
-                updateField("forzaUdpForwardPort", event.target.value)
-              }
-            />
-          </label>
-          <label>
-            <span>UDP Forward Port 2</span>
-            <input
-              inputMode="numeric"
-              disabled={!draft.udpForwardingEnabled}
-              value={draft.forzaUdpForwardPort2}
-              onChange={(event) =>
-                updateField("forzaUdpForwardPort2", event.target.value)
-              }
-            />
-          </label>
-          <label>
-            <span>Telemetry WS Port</span>
-            <input
-              inputMode="numeric"
-              value={draft.telemetryWsPort}
-              onChange={(event) =>
-                updateField("telemetryWsPort", event.target.value)
-              }
-            />
-          </label>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={draft.lanAccessEnabled !== false}
-              onChange={(event) =>
-                updateField("lanAccessEnabled", event.target.checked)
-              }
-            />
-            <span>
-              <strong>LAN Dashboard Access</strong>
-              <em>Allow phones, tablets, and other local devices</em>
-            </span>
-            <i aria-hidden="true" />
-          </label>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={Boolean(draft.developerMode)}
-              onChange={(event) =>
-                updateField("developerMode", event.target.checked)
-              }
-            />
-            <span>
-              <strong>Developer Mode</strong>
-              <em>Write frontend and backend diagnostic logs</em>
-            </span>
-            <i aria-hidden="true" />
-          </label>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={Boolean(draft.demoDriveMode)}
-              disabled={telemetryOnline}
-              onChange={(event) =>
-                updateField("demoDriveMode", event.target.checked)
-              }
-            />
-            <span>
-              <strong>Demo Drive Mode</strong>
-              <em>{telemetryOnline ? "Disabled while telemetry is live" : "Animate the dash without game data"}</em>
-            </span>
-            <i aria-hidden="true" />
-          </label>
-          <label>
-            <span>Speed Unit</span>
-            <select
-              value={draft.speedUnit || "kmh"}
-              onChange={(event) => updateField("speedUnit", event.target.value)}
-            >
-              <option value="kmh">KM/H</option>
-              <option value="mph">MPH</option>
-            </select>
-          </label>
-          <label>
-            <span>Map Quality</span>
-            <select
-              value={draft.mapQuality || DEFAULT_SETTINGS.mapQuality}
-              onChange={(event) => updateField("mapQuality", event.target.value)}
-            >
-              <option value="optimized">Optimized / Low Load</option>
-              <option value="full">Full Quality</option>
-            </select>
-          </label>
-          <label className="settings-toggle">
-            <input
-              type="checkbox"
-              checked={Boolean(draft.flashMode)}
-              onChange={(event) =>
-                updateField("flashMode", event.target.checked)
-              }
-            />
-            <span>
-              <strong>Flash Mode</strong>
-              <em>Pulse the screen when grip drops</em>
-            </span>
-            <i aria-hidden="true" />
-          </label>
+        <div className="settings-sections">
+          <div className="settings-section">
+            <h3>Editable</h3>
+            <div className="settings-grid">
+              <label>
+                <span>Weather Region</span>
+                <input
+                  value={draft.weatherRegion}
+                  onChange={(event) =>
+                    updateField("weatherRegion", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>Dashboard Port</span>
+                <input
+                  inputMode="numeric"
+                  value={draft.dashboardPort}
+                  onChange={(event) =>
+                    updateField("dashboardPort", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>Forza UDP Port</span>
+                <input
+                  inputMode="numeric"
+                  value={draft.forzaUdpPort}
+                  onChange={(event) =>
+                    updateField("forzaUdpPort", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>Telemetry WS Port</span>
+                <input
+                  inputMode="numeric"
+                  value={draft.telemetryWsPort}
+                  onChange={(event) =>
+                    updateField("telemetryWsPort", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>UDP Forward Port</span>
+                <input
+                  inputMode="numeric"
+                  disabled={!draft.udpForwardingEnabled}
+                  value={draft.forzaUdpForwardPort}
+                  onChange={(event) =>
+                    updateField("forzaUdpForwardPort", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>UDP Forward Port 2</span>
+                <input
+                  inputMode="numeric"
+                  disabled={!draft.udpForwardingEnabled}
+                  value={draft.forzaUdpForwardPort2}
+                  onChange={(event) =>
+                    updateField("forzaUdpForwardPort2", event.target.value)
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <h3>Display</h3>
+            <div className="settings-grid">
+              <label>
+                <span>Speed Unit</span>
+                <select
+                  value={draft.speedUnit || "kmh"}
+                  onChange={(event) => updateField("speedUnit", event.target.value)}
+                >
+                  <option value="kmh">KM/H</option>
+                  <option value="mph">MPH</option>
+                </select>
+              </label>
+              <label>
+                <span>UI FPS Limit</span>
+                <select
+                  value={String(draft.uiFpsLimit || DEFAULT_SETTINGS.uiFpsLimit)}
+                  onChange={(event) => updateField("uiFpsLimit", event.target.value)}
+                >
+                  <option value="30">30 FPS</option>
+                  <option value="60">60 FPS</option>
+                  <option value="120">120 FPS</option>
+                </select>
+              </label>
+              <label>
+                <span>Map Quality</span>
+                <select
+                  value={draft.mapQuality || DEFAULT_SETTINGS.mapQuality}
+                  onChange={(event) => updateField("mapQuality", event.target.value)}
+                >
+                  <option value="optimized">Optimized / Low Load</option>
+                  <option value="full">Full Quality</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <h3>Toggles</h3>
+            <div className="settings-grid settings-toggle-grid">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.udpForwardingEnabled)}
+                  onChange={(event) =>
+                    updateField("udpForwardingEnabled", event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>UDP Forwarding</strong>
+                  <em>Mirror telemetry to forward ports</em>
+                </span>
+                <i aria-hidden="true" />
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.lanAccessEnabled !== false}
+                  onChange={(event) =>
+                    updateField("lanAccessEnabled", event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>LAN Dashboard Access</strong>
+                  <em>Allow phones, tablets, and other local devices</em>
+                </span>
+                <i aria-hidden="true" />
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.developerMode)}
+                  onChange={(event) =>
+                    updateField("developerMode", event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>Developer Mode</strong>
+                  <em>Write frontend and backend diagnostic logs</em>
+                </span>
+                <i aria-hidden="true" />
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.demoDriveMode)}
+                  disabled={telemetryOnline}
+                  onChange={(event) =>
+                    updateField("demoDriveMode", event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>Demo Drive Mode</strong>
+                  <em>{telemetryOnline ? "Disabled while telemetry is live" : "Animate the dash without game data"}</em>
+                </span>
+                <i aria-hidden="true" />
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.flashMode)}
+                  onChange={(event) =>
+                    updateField("flashMode", event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>Flash Mode</strong>
+                  <em>Pulse on grip loss or gear limit</em>
+                </span>
+                <i aria-hidden="true" />
+              </label>
+            </div>
+          </div>
         </div>
         {settingsError && <p className="settings-error">{settingsError}</p>}
         <div className="settings-note settings-url-row">
