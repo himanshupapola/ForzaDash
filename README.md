@@ -144,6 +144,14 @@ npm run dist:win
 
 The EXE is created at `dist/ForzaDash.exe`.
 
+Build Linux AppImage and Debian package from a Linux environment:
+
+```bash
+npm run dist:linux
+```
+
+The Linux artifacts are created in `dist/`.
+
 ## Spotify Developer Setup
 
 Spotify is optional. Create a Spotify app and add this Redirect URI:

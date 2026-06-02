@@ -13,6 +13,46 @@ function getTelemetryValue(telemetry, keys, fallback = null) {
   return fallback;
 }
 
+function slipToGripIndex(slipValues, telemetry = {}) {
+  const avgSlip =
+    slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
+  const maxSlip = Math.max(...slipValues);
+  const speedKmh = Math.max(0, Number(telemetry.speedKmh) || 0);
+  const brake = clamp((Number(telemetry.brake) || 0) / 255, 0, 1);
+  const throttle = clamp((Number(telemetry.throttle) || 0) / 255, 0, 1);
+  const steer = clamp(Math.abs(Number(telemetry.steer) || 0) / 127, 0, 1);
+  const speedLoad = clamp(speedKmh / 120, 0, 1);
+  const cornerLoad = steer * speedLoad;
+  const brakeLoad = brake * speedLoad;
+  const expectedSlip =
+    0.18 + cornerLoad * 0.48 + brakeLoad * 0.42 + throttle * speedLoad * 0.28;
+  const normalLoadPenalty =
+    clamp(avgSlip / Math.max(expectedSlip + 0.8, 1), 0, 1) * 14;
+  const excessSlipPenalty =
+    Math.max(0, avgSlip - expectedSlip - 0.45) * (36 + speedLoad * 18);
+  const peakSlipPenalty =
+    Math.max(0, maxSlip - expectedSlip - 0.85) * (22 + speedLoad * 16);
+  const wheelspinPenalty =
+    maxSlip > 1 ? clamp(((maxSlip - 1) / 1.5) * 100, 0, 100) * 0.42 : 0;
+  const brakeTurnPenalty =
+    brake > 0.25 && cornerLoad > 0.2
+      ? brake * cornerLoad * Math.max(0, maxSlip - expectedSlip) * 14
+      : 0;
+
+  return clamp(
+    Math.round(
+      100 -
+        normalLoadPenalty -
+        excessSlipPenalty -
+        peakSlipPenalty -
+        wheelspinPenalty -
+        brakeTurnPenalty,
+    ),
+    0,
+    100,
+  );
+}
+
 export default function GripMonitorCard({ telemetry = {} }) {
   const fallbackSlip = (() => {
     const throttle = clamp((telemetry.throttle || 0) / 255, 0, 1);
@@ -39,11 +79,16 @@ export default function GripMonitorCard({ telemetry = {} }) {
   const maxSlip = Math.max(...slipValues);
   const wheelspinPct = maxSlip > 1 ? clamp(Math.round(((maxSlip - 1) / 1.5) * 100), 0, 100) : 0;
 
-  const avgSlip = slipValues.reduce((sum, value) => sum + value, 0) / slipValues.length;
-  const gripIndex = clamp(Math.round(100 - avgSlip * 80), 0, 100);
+  const gripIndex = slipToGripIndex(slipValues, telemetry);
 
   const status = gripIndex < 40 ? "LOST" : gripIndex < 85 ? "SLIPPING" : "PERFECT";
   const statusClass = gripIndex < 40 ? "danger" : gripIndex < 85 ? "warn" : "good";
+  const statusDescription =
+    status === "PERFECT"
+      ? "OPTIMAL TRACTION"
+      : status === "SLIPPING"
+        ? "TIRES NEAR LIMIT"
+        : "TRACTION LOST";
 
   const rows = [
     ["FRONT SLIP", frontSlipPct],
@@ -76,7 +121,7 @@ export default function GripMonitorCard({ telemetry = {} }) {
       <div className={`grip-status ${statusClass}`}>
         <span>STATUS</span>
         <strong>{status}</strong>
-        <em>{status === "PERFECT" ? "OPTIMAL TRACTION" : "TRACTION ACTIVE"}</em>
+        <em>{statusDescription}</em>
       </div>
     </div>
   );
