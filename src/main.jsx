@@ -128,8 +128,12 @@ const SETTINGS_KEY = "forzadash_settings";
 const MUSIC_PROVIDER_KEY = "forzadash_music_provider";
 const YOUTUBE_VOLUME_KEY = "forzadash_youtube_volume";
 const YOUTUBE_MUTED_KEY = "forzadash_youtube_muted";
+const NAVIGATION_ONLY_ZOOM_KEY = "forzadash_navigation_only_zoom";
 const APP_VERSION =
   typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev";
+const DEFAULT_NAVIGATION_ONLY_ZOOM = 2.08;
+const MIN_NAVIGATION_ONLY_ZOOM = 1.05;
+const MAX_NAVIGATION_ONLY_ZOOM = 4.25;
 const DEFAULT_SETTINGS = {
   weatherRegion: import.meta.env.VITE_WEATHER_REGION || "Bageshwar",
   dashboardPort: import.meta.env.VITE_DASHBOARD_PORT || "5173",
@@ -145,9 +149,112 @@ const DEFAULT_SETTINGS = {
   uiFpsLimit: "60",
   speedUnit: "kmh",
   mapQuality: "full",
+  dashboardTheme: "full",
   flashMode: false,
   backgroundColor: import.meta.env.VITE_BACKGROUND_COLOR || "#000204",
 };
+
+function portValue(value) {
+  const port = Number(String(value || "").trim());
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+function repairSettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return {
+      settings: { ...DEFAULT_SETTINGS },
+      repairs: ["settings were invalid"],
+    };
+  }
+
+  const repaired = { ...DEFAULT_SETTINGS, ...settings };
+  const repairs = [];
+  const portKeys = [
+    "dashboardPort",
+    "forzaUdpPort",
+    "telemetryWsPort",
+    "forzaUdpForwardPort",
+    "forzaUdpForwardPort2",
+  ];
+
+  for (const key of portKeys) {
+    if (!portValue(repaired[key])) {
+      repaired[key] = DEFAULT_SETTINGS[key];
+      repairs.push(`${key} reset to default`);
+    } else {
+      repaired[key] = String(repaired[key]).trim();
+    }
+  }
+
+  let udpPort = portValue(repaired.forzaUdpPort);
+  let telemetryPort = portValue(repaired.telemetryWsPort);
+  let dashboardPort = portValue(repaired.dashboardPort);
+  if (
+    dashboardPort === telemetryPort ||
+    dashboardPort === udpPort ||
+    telemetryPort === udpPort
+  ) {
+    repaired.dashboardPort = DEFAULT_SETTINGS.dashboardPort;
+    repaired.forzaUdpPort = DEFAULT_SETTINGS.forzaUdpPort;
+    repaired.telemetryWsPort = DEFAULT_SETTINGS.telemetryWsPort;
+    repairs.push("conflicting dashboard/telemetry/Forza UDP ports reset to defaults");
+  }
+
+  udpPort = portValue(repaired.forzaUdpPort);
+  telemetryPort = portValue(repaired.telemetryWsPort);
+  dashboardPort = portValue(repaired.dashboardPort);
+  const forwardPort1 = portValue(repaired.forzaUdpForwardPort);
+  const forwardPort2 = portValue(repaired.forzaUdpForwardPort2);
+  if (repaired.udpForwardingEnabled) {
+    if (
+      forwardPort1 === forwardPort2 ||
+      forwardPort1 === udpPort ||
+      forwardPort2 === udpPort ||
+      forwardPort1 === dashboardPort ||
+      forwardPort2 === dashboardPort ||
+      forwardPort1 === telemetryPort ||
+      forwardPort2 === telemetryPort
+    ) {
+      repaired.forzaUdpForwardPort = DEFAULT_SETTINGS.forzaUdpForwardPort;
+      repaired.forzaUdpForwardPort2 = DEFAULT_SETTINGS.forzaUdpForwardPort2;
+      repairs.push("conflicting UDP forwarding ports reset to defaults");
+    }
+  }
+
+  if (!["30", "60", "120"].includes(String(repaired.uiFpsLimit))) {
+    repaired.uiFpsLimit = DEFAULT_SETTINGS.uiFpsLimit;
+    repairs.push("uiFpsLimit reset to default");
+  }
+
+  if (!["kmh", "mph"].includes(String(repaired.speedUnit))) {
+    repaired.speedUnit = DEFAULT_SETTINGS.speedUnit;
+    repairs.push("speedUnit reset to default");
+  }
+
+  if (!["optimized", "full"].includes(String(repaired.mapQuality))) {
+    repaired.mapQuality = DEFAULT_SETTINGS.mapQuality;
+    repairs.push("mapQuality reset to default");
+  }
+
+  if (!["full", "top-only"].includes(String(repaired.dashboardTheme))) {
+    repaired.dashboardTheme = DEFAULT_SETTINGS.dashboardTheme;
+    repairs.push("dashboardTheme reset to default");
+  }
+
+  return { settings: repaired, repairs };
+}
+
+function saveRepairedSettings(settings, repairs) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  reportClientEvent("SETTINGS_REPAIRED", { repairs });
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  }).catch(() => {});
+  return settings;
+}
+
 function toDisplaySpeed(speedKmh, speedUnit) {
   const kmh = Number(speedKmh) || 0;
   return speedUnit === "mph" ? kmh * 0.621371 : kmh;
@@ -155,6 +262,21 @@ function toDisplaySpeed(speedKmh, speedUnit) {
 
 function speedUnitLabel(speedUnit) {
   return speedUnit === "mph" ? "MPH" : "KM/H";
+}
+
+function readNavigationOnlyZoom() {
+  try {
+    const zoom = Number(localStorage.getItem(NAVIGATION_ONLY_ZOOM_KEY));
+    return Number.isFinite(zoom)
+      ? clamp(
+          zoom,
+          MIN_NAVIGATION_ONLY_ZOOM,
+          MAX_NAVIGATION_ONLY_ZOOM,
+        )
+      : DEFAULT_NAVIGATION_ONLY_ZOOM;
+  } catch {
+    return DEFAULT_NAVIGATION_ONLY_ZOOM;
+  }
 }
 
 function uiFrameIntervalMs(value) {
@@ -446,12 +568,19 @@ function createMusicTelemetry(frame, music = {}, drive = {}) {
 
 function readSettings() {
   try {
-    return {
+    const settings = {
       ...DEFAULT_SETTINGS,
       ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") || {}),
     };
+    const result = repairSettings(settings);
+    return result.repairs.length
+      ? saveRepairedSettings(result.settings, result.repairs)
+      : result.settings;
   } catch {
-    return DEFAULT_SETTINGS;
+    return saveRepairedSettings(
+      { ...DEFAULT_SETTINGS },
+      ["settings JSON could not be parsed"],
+    );
   }
 }
 
@@ -1587,6 +1716,8 @@ function useWeather(settings) {
 function useUpdateInfo() {
   const [updateInfo, setUpdateInfo] = useState(null);
   useEffect(() => {
+    if (!/\bElectron\b/i.test(navigator.userAgent)) return undefined;
+
     let cancelled = false;
     async function load() {
       try {
@@ -1618,6 +1749,9 @@ function App() {
     title: "",
     updatedAt: Date.now(),
   });
+  const [navigationOnlyZoom, setNavigationOnlyZoom] = useState(
+    readNavigationOnlyZoom,
+  );
   const [lastPacketAt, setLastPacketAt] = useState(0);
   const [telemetryServerOnline, setTelemetryServerOnline] = useState(
     Boolean(window.forzaDash?.onTelemetry),
@@ -1659,6 +1793,7 @@ function App() {
         developerMode: Boolean(settings.developerMode),
         telemetryWsPort: settings.telemetryWsPort,
         demoDriveMode: settings.demoDriveMode,
+        dashboardTheme: settings.dashboardTheme,
       },
     });
   }, []);
@@ -1984,62 +2119,119 @@ function App() {
     lastLiveTelemetryRef.current = smoothTelemetry;
   }
   const mapTelemetry = lastLiveTelemetryRef.current || smoothTelemetry;
+  const navigationOnlyTheme = settings.dashboardTheme === "top-only";
+
+  function changeNavigationOnlyZoom(delta) {
+    setNavigationOnlyZoom((current) => {
+      const next = clamp(
+        Number((current + delta).toFixed(2)),
+        MIN_NAVIGATION_ONLY_ZOOM,
+        MAX_NAVIGATION_ONLY_ZOOM,
+      );
+      localStorage.setItem(NAVIGATION_ONLY_ZOOM_KEY, String(next));
+      return next;
+    });
+  }
 
   return (
     <main
-      className="dashboard"
+      className={`dashboard ${navigationOnlyTheme ? "theme-navigation-only" : ""}`}
       style={{
         "--dashboard-bg": normalizeColor(settings.backgroundColor),
       }}
     >
-      <TopBar
-        online={online}
-        telemetryStatus={telemetryStatus}
-        telemetry={smoothTelemetry}
-        weather={weather}
-        clock={clock}
-        updateInfo={updateInfo}
-      />
-      <section className="main-grid">
-        <aside className="left-stack">
-          <TelemetryPanel
-            telemetry={smoothTelemetry}
-            gear={gear}
-            speedUnit={settings.speedUnit}
-          />
-          <section className="glass-panel navigation-spacer-card">
-            <PowerGraph key={`power-${telemetryUiKey}`} telemetry={smoothTelemetry} />
-          </section>
+      {navigationOnlyTheme ? (
+        <section
+          className="navigation-only-screen"
+          aria-label="Navigation only dashboard"
+          style={{ "--navigation-only-zoom": navigationOnlyZoom }}
+        >
           <NavigationSection
-            key={`nav-${telemetryUiKey}`}
+            key={`nav-only-${telemetryUiKey}`}
             telemetry={mapTelemetry}
             online={online}
             mapQuality={settings.mapQuality}
           />
-        </aside>
-        <CenterDial
-          key={`dial-${telemetryUiKey}`}
-          telemetry={smoothTelemetry}
-          speed={speed}
-          gear={gear}
-          speedUnit={settings.speedUnit}
-          rpmRatio={rpmRatio}
-        />
-        <aside className="right-stack">
-          <MusicPanel
+          <div className="navigation-only-zoom-controls" aria-label="Map zoom controls">
+            <button
+              type="button"
+              aria-label="Zoom in"
+              onClick={() => changeNavigationOnlyZoom(0.16)}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              onClick={() => changeNavigationOnlyZoom(-0.16)}
+            >
+              -
+            </button>
+          </div>
+          <button
+            className="navigation-only-settings"
+            type="button"
+            aria-label="Open settings"
+            onClick={openSettings}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+        </section>
+      ) : (
+        <>
+          <TopBar
+            online={online}
+            telemetryStatus={telemetryStatus}
             telemetry={smoothTelemetry}
+            weather={weather}
+            clock={clock}
+            updateInfo={updateInfo}
             onOpenSettings={openSettings}
-            onMusicSnapshot={setMusicSnapshot}
-            telemetryOnline={Boolean(online)}
           />
-          <BoostPressurePanel key={`boost-${telemetryUiKey}`} telemetry={smoothTelemetry} />
-        </aside>
-      </section>
-      <BottomSystems
-        key={`systems-${telemetryUiKey}`}
-        telemetry={smoothTelemetry}
-        inputTelemetry={telemetry}
-      />
+          <section className="main-grid">
+            <aside className="left-stack">
+              <TelemetryPanel
+                telemetry={smoothTelemetry}
+                gear={gear}
+                speedUnit={settings.speedUnit}
+              />
+              <section className="glass-panel navigation-spacer-card">
+                <PowerGraph key={`power-${telemetryUiKey}`} telemetry={smoothTelemetry} />
+              </section>
+              <NavigationSection
+                key={`nav-${telemetryUiKey}`}
+                telemetry={mapTelemetry}
+                online={online}
+                mapQuality={settings.mapQuality}
+              />
+            </aside>
+            <CenterDial
+              key={`dial-${telemetryUiKey}`}
+              telemetry={smoothTelemetry}
+              speed={speed}
+              gear={gear}
+              speedUnit={settings.speedUnit}
+              rpmRatio={rpmRatio}
+            />
+            <aside className="right-stack">
+              <MusicPanel
+                telemetry={smoothTelemetry}
+                onOpenSettings={openSettings}
+                onMusicSnapshot={setMusicSnapshot}
+                telemetryOnline={Boolean(online)}
+              />
+              <BoostPressurePanel key={`boost-${telemetryUiKey}`} telemetry={smoothTelemetry} />
+            </aside>
+          </section>
+          <BottomSystems
+            key={`systems-${telemetryUiKey}`}
+            telemetry={smoothTelemetry}
+            inputTelemetry={telemetry}
+          />
+        </>
+      )}
       <div
         className={`fullscreen-toast ${showFullscreenToast ? "visible" : ""}`}
         role="status"
@@ -2070,6 +2262,7 @@ const TopBar = React.memo(function TopBar({
   weather,
   clock,
   updateInfo,
+  onOpenSettings,
 }) {
   const [clockTime, meridiem] = clock.time.split(" ");
   const topTelemetryStats = [
@@ -2124,6 +2317,16 @@ const TopBar = React.memo(function TopBar({
             </em>
           )}
         </div>
+        <button
+          className="top-settings-trigger"
+          type="button"
+          aria-label="Open settings"
+          onClick={onOpenSettings}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </div>
     </header>
   );
@@ -3485,6 +3688,8 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
         ? String(draft.uiFpsLimit)
         : DEFAULT_SETTINGS.uiFpsLimit,
       mapQuality: draft.mapQuality === "full" ? "full" : "optimized",
+      dashboardTheme:
+        draft.dashboardTheme === "top-only" ? "top-only" : "full",
       flashMode: Boolean(draft.flashMode),
     });
     setSaved(true);
@@ -3628,6 +3833,18 @@ function SettingsModal({ onClose, telemetryOnline = false }) {
                 >
                   <option value="optimized">Optimized / Low Load</option>
                   <option value="full">Full Quality</option>
+                </select>
+              </label>
+              <label>
+                <span>Theme</span>
+                <select
+                  value={draft.dashboardTheme || DEFAULT_SETTINGS.dashboardTheme}
+                  onChange={(event) =>
+                    updateField("dashboardTheme", event.target.value)
+                  }
+                >
+                  <option value="full">Full Theme</option>
+                  <option value="top-only">Navigation Only</option>
                 </select>
               </label>
             </div>

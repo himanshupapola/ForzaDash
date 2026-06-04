@@ -228,7 +228,7 @@
   display: grid;
   place-items: center;
   color: #cddbe3;
-  opacity: 0.62;
+  opacity: 0.86;
   z-index: 5;
   filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.78));
   transition:
@@ -238,7 +238,7 @@
 
 .live-map-marker.active {
   color: #dbe8ee;
-  opacity: 0.82;
+  opacity: 1;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.86))
     drop-shadow(0 0 4px rgba(72, 206, 255, 0.22));
 }

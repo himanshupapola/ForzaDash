@@ -172,6 +172,14 @@ If live data does not appear:
 - Restart ForzaDash after port changes.
 - Send `forzadash-telemetry.log` from the EXE folder when reporting lag or freezing.
 
+If ForzaDash opens to a black screen after changing settings:
+
+- Update to the latest release first. Newer builds automatically reset invalid saved fields to defaults.
+- Close ForzaDash from the tray or Task Manager.
+- Press `Win + R`, paste `%APPDATA%\ForzaDash`, and press Enter.
+- Delete `forzadash-settings.json`.
+- Start `ForzaDash.exe` again. The app will recreate settings with defaults.
+
 If fullscreen does not work:
 
 - Use `F11`, double-click an empty part of the dashboard, or use the Electron window fullscreen shortcut.

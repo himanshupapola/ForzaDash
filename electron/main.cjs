@@ -162,6 +162,24 @@ const SETTINGS_ENV_MAP = {
   backgroundColor: "VITE_BACKGROUND_COLOR",
   spotifyClientId: "VITE_SPOTIFY_CLIENT_ID",
 };
+const DEFAULT_SAVED_SETTINGS = {
+  weatherRegion: "Bageshwar",
+  dashboardPort: "5173",
+  forzaUdpPort: "1234",
+  udpForwardingEnabled: false,
+  forzaUdpForwardPort: "1235",
+  forzaUdpForwardPort2: "1236",
+  telemetryWsPort: "17878",
+  lanAccessEnabled: true,
+  developerMode: false,
+  spotifyClientId: "",
+  demoDriveMode: false,
+  uiFpsLimit: "60",
+  speedUnit: "kmh",
+  mapQuality: "full",
+  flashMode: false,
+  backgroundColor: "#000204",
+};
 
 function getSettingsFilePath() {
   return path.join(app.getPath("userData"), "forzadash-settings.json");
@@ -179,8 +197,128 @@ function readSettingsFile() {
   }
 }
 
+function portValue(value) {
+  const port = Number(String(value ?? "").trim());
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+function repairSavedSettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return {
+      settings: { ...DEFAULT_SAVED_SETTINGS },
+      repairs: ["settings file was not an object"],
+    };
+  }
+
+  const repaired = { ...DEFAULT_SAVED_SETTINGS, ...settings };
+  const repairs = [];
+  const portKeys = [
+    "dashboardPort",
+    "forzaUdpPort",
+    "telemetryWsPort",
+    "forzaUdpForwardPort",
+    "forzaUdpForwardPort2",
+  ];
+
+  for (const key of portKeys) {
+    if (!portValue(repaired[key])) {
+      repaired[key] = DEFAULT_SAVED_SETTINGS[key];
+      repairs.push(`${key} reset to default`);
+    } else {
+      repaired[key] = String(repaired[key]).trim();
+    }
+  }
+
+  let dashboardPort = portValue(repaired.dashboardPort);
+  let udpPort = portValue(repaired.forzaUdpPort);
+  let telemetryPort = portValue(repaired.telemetryWsPort);
+  if (
+    dashboardPort === udpPort ||
+    dashboardPort === telemetryPort ||
+    telemetryPort === udpPort
+  ) {
+    repaired.dashboardPort = DEFAULT_SAVED_SETTINGS.dashboardPort;
+    repaired.forzaUdpPort = DEFAULT_SAVED_SETTINGS.forzaUdpPort;
+    repaired.telemetryWsPort = DEFAULT_SAVED_SETTINGS.telemetryWsPort;
+    repairs.push("conflicting dashboard/telemetry/Forza UDP ports reset to defaults");
+  }
+
+  dashboardPort = portValue(repaired.dashboardPort);
+  udpPort = portValue(repaired.forzaUdpPort);
+  telemetryPort = portValue(repaired.telemetryWsPort);
+  let forwardPort1 = portValue(repaired.forzaUdpForwardPort);
+  let forwardPort2 = portValue(repaired.forzaUdpForwardPort2);
+  if (repaired.udpForwardingEnabled) {
+    if (
+      forwardPort1 === forwardPort2 ||
+      forwardPort1 === udpPort ||
+      forwardPort2 === udpPort ||
+      forwardPort1 === dashboardPort ||
+      forwardPort2 === dashboardPort ||
+      forwardPort1 === telemetryPort ||
+      forwardPort2 === telemetryPort
+    ) {
+      repaired.forzaUdpForwardPort = DEFAULT_SAVED_SETTINGS.forzaUdpForwardPort;
+      repaired.forzaUdpForwardPort2 = DEFAULT_SAVED_SETTINGS.forzaUdpForwardPort2;
+      repairs.push("conflicting UDP forwarding ports reset to defaults");
+    }
+  }
+
+  if (!["30", "60", "120"].includes(String(repaired.uiFpsLimit))) {
+    repaired.uiFpsLimit = DEFAULT_SAVED_SETTINGS.uiFpsLimit;
+    repairs.push("uiFpsLimit reset to default");
+  }
+
+  if (!["kmh", "mph"].includes(String(repaired.speedUnit))) {
+    repaired.speedUnit = DEFAULT_SAVED_SETTINGS.speedUnit;
+    repairs.push("speedUnit reset to default");
+  }
+
+  if (!["optimized", "full"].includes(String(repaired.mapQuality))) {
+    repaired.mapQuality = DEFAULT_SAVED_SETTINGS.mapQuality;
+    repairs.push("mapQuality reset to default");
+  }
+
+  return { settings: repaired, repairs };
+}
+
+function saveRepairedSettings(settings, repairs) {
+  const settingsPath = getSettingsFilePath();
+  const backupPath = path.join(
+    path.dirname(settingsPath),
+    `forzadash-settings.bad-${Date.now()}.json`,
+  );
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      fs.copyFileSync(settingsPath, backupPath);
+      writeStartupLog(`invalid settings copied to ${backupPath}: ${repairs.join("; ")}`);
+    }
+  } catch (error) {
+    writeStartupLog(`could not backup invalid settings: ${error?.message || error}`);
+  }
+
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    writeStartupLog(`settings repaired: ${repairs.join("; ")}`);
+  } catch (error) {
+    writeStartupLog(`could not save repaired settings: ${error?.message || error}`);
+  }
+
+  return settings;
+}
+
+function readValidatedSettingsFile() {
+  const settings = readSettingsFile();
+  if (!settings) return null;
+  const result = repairSavedSettings(settings);
+  return result.repairs.length
+    ? saveRepairedSettings(result.settings, result.repairs)
+    : result.settings;
+}
+
 function isDemoDriveModeEnabled() {
-  return Boolean(readSettingsFile()?.demoDriveMode);
+  return Boolean(readValidatedSettingsFile()?.demoDriveMode);
 }
 
 function readElectronLocalStorageSettings() {
@@ -219,8 +357,18 @@ function readElectronLocalStorageSettings() {
   return null;
 }
 
+function readValidatedElectronLocalStorageSettings() {
+  const settings = readElectronLocalStorageSettings();
+  if (!settings) return null;
+  const result = repairSavedSettings(settings);
+  return result.repairs.length
+    ? saveRepairedSettings(result.settings, result.repairs)
+    : result.settings;
+}
+
 function applySavedSettingsToEnv() {
-  const settings = readSettingsFile() || readElectronLocalStorageSettings();
+  const settings =
+    readValidatedSettingsFile() || readValidatedElectronLocalStorageSettings();
   if (!settings) return;
 
   for (const [settingKey, envKey] of Object.entries(SETTINGS_ENV_MAP)) {
@@ -334,7 +482,7 @@ function startDashboardServer() {
 
     if (url.pathname === "/api/settings" && request.method === "GET") {
       response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify(readSettingsFile() || {}));
+      response.end(JSON.stringify(readValidatedSettingsFile() || {}));
       return;
     }
 

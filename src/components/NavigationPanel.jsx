@@ -272,7 +272,7 @@ export default React.memo(function NavigationPanel({
         <div
           className="live-map-world"
           style={{
-            transform: `rotate(${mapRotation}rad) scale(${GPS_MAP_ZOOM})`,
+            transform: `rotate(${mapRotation}rad) scale(var(--gps-map-zoom, ${GPS_MAP_ZOOM}))`,
             "--map-x": `${centeredMapX}px`,
             "--map-y": `${centeredMapY}px`,
           }}
