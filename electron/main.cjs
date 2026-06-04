@@ -82,6 +82,25 @@ function isYouTubeMusicUrl(url) {
   }
 }
 
+function isSpotifyAuthUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "accounts.spotify.com";
+  } catch {
+    return false;
+  }
+}
+
+function isDashboardUrl(url, dashboardUrl) {
+  try {
+    const parsed = new URL(url);
+    const dashboard = new URL(dashboardUrl);
+    return parsed.origin === dashboard.origin;
+  } catch {
+    return url === dashboardUrl;
+  }
+}
+
 function isControllableYouTubeMusicUrl(url) {
   try {
     return new URL(url).hostname === "music.youtube.com";
@@ -821,11 +840,14 @@ function createDashboardWindow(dashboardUrl) {
   dashboardWindow.setAspectRatio(16 / 10);
   dashboardWindow.loadURL(dashboardUrl);
   dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isDashboardUrl(url, dashboardUrl) || isSpotifyAuthUrl(url)) {
+      return { action: "allow" };
+    }
     shell.openExternal(url).catch(() => {});
     return { action: "deny" };
   });
   dashboardWindow.webContents.on("will-navigate", (event, url) => {
-    if (url === dashboardUrl) return;
+    if (isDashboardUrl(url, dashboardUrl) || isSpotifyAuthUrl(url)) return;
     event.preventDefault();
     shell.openExternal(url).catch(() => {});
   });
