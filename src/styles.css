@@ -156,9 +156,7 @@ button:focus-visible,
   width: clamp(38px, 3vw, 56px);
   height: clamp(38px, 3vw, 56px);
   display: inline-grid;
-  grid-template-columns: repeat(3, 5px);
-  place-content: center;
-  gap: 5px;
+  place-items: center;
   border-radius: 999px;
   color: #d8eaf4;
   background: rgba(1, 8, 13, 0.72);
@@ -173,11 +171,11 @@ button:focus-visible,
   background: rgba(37, 200, 255, 0.14);
 }
 
-.navigation-only-settings span {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: currentColor;
+.navigation-only-settings svg {
+  width: clamp(18px, 1.4vw, 25px);
+  height: clamp(18px, 1.4vw, 25px);
+  color: currentColor;
+  stroke: currentColor;
 }
 
 .navigation-only-zoom-controls {
@@ -2208,7 +2206,6 @@ h3 {
 }
 
 .settings-trigger:hover {
-  color: #e4edf4;
   opacity: 0.95;
 }
 
@@ -2218,6 +2215,13 @@ h3 {
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 8px rgba(178, 197, 208, 0.3);
+}
+
+.settings-trigger svg {
+  width: 17px;
+  height: 17px;
+  color: currentColor;
+  stroke: currentColor;
 }
 
 .settings-backdrop {

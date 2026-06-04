@@ -8,6 +8,7 @@ import {
   Plus,
   Repeat,
   Radio,
+  Settings,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -2172,11 +2173,10 @@ function App() {
             className="navigation-only-settings"
             type="button"
             aria-label="Open settings"
+            title="Open settings"
             onClick={openSettings}
           >
-            <span />
-            <span />
-            <span />
+            <Settings />
           </button>
         </section>
       ) : (
@@ -2188,7 +2188,6 @@ function App() {
             weather={weather}
             clock={clock}
             updateInfo={updateInfo}
-            onOpenSettings={openSettings}
           />
           <section className="main-grid">
             <aside className="left-stack">
@@ -2262,7 +2261,6 @@ const TopBar = React.memo(function TopBar({
   weather,
   clock,
   updateInfo,
-  onOpenSettings,
 }) {
   const [clockTime, meridiem] = clock.time.split(" ");
   const topTelemetryStats = [
@@ -2317,16 +2315,6 @@ const TopBar = React.memo(function TopBar({
             </em>
           )}
         </div>
-        <button
-          className="top-settings-trigger"
-          type="button"
-          aria-label="Open settings"
-          onClick={onOpenSettings}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
       </div>
     </header>
   );
@@ -3378,11 +3366,10 @@ const MusicPanel = React.memo(function MusicPanel({
           className="settings-trigger"
           type="button"
           aria-label="Open settings"
+          title="Open settings"
           onClick={onOpenSettings}
         >
-          <span />
-          <span />
-          <span />
+          <Settings />
         </button>
       </div>
       {isCredit ? (
