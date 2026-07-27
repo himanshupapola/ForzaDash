@@ -1792,7 +1792,34 @@ async function controlYouTubeMusic(command) {
   const window = youtubeMusicWindow;
   await installYouTubePlayerEventBridge(window);
   await installYouTubeAudioMode(window);
-  if (command === "toggle") sendYouTubeKey(window, ";");
+  if (command === "toggle") {
+    await window.webContents.executeJavaScript(`
+      (() => {
+        try {
+          const playerApi = document.querySelector("#movie_player");
+          if (playerApi && typeof playerApi.playVideo === "function" && typeof playerApi.getPlayerState === "function") {
+            const state = playerApi.getPlayerState();
+            if (state === 1) playerApi.pauseVideo();
+            else playerApi.playVideo();
+            return true;
+          }
+          const button = document.querySelector(
+            "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button, #play-pause-button, .play-pause-button"
+          );
+          if (button && typeof button.click === "function") {
+            button.click();
+            return true;
+          }
+          const media = document.querySelector("video, audio");
+          if (media) {
+            if (media.paused) media.play().catch(() => {});
+            else media.pause();
+          }
+        } catch {}
+        return true;
+      })();
+    `).catch(() => {});
+  }
   if (command === "next") sendYouTubeKey(window, "j");
   if (command === "previous") sendYouTubeKey(window, "k");
   if (command === "shuffle") sendYouTubeKey(window, "s");
@@ -1802,6 +1829,12 @@ async function controlYouTubeMusic(command) {
     await window.webContents.executeJavaScript(`
       (() => {
         const shouldPlay = ${JSON.stringify(command === "play")};
+        const playerApi = document.querySelector("#movie_player");
+        if (playerApi && typeof playerApi.playVideo === "function" && typeof playerApi.pauseVideo === "function") {
+          if (shouldPlay) playerApi.playVideo();
+          else playerApi.pauseVideo();
+          return true;
+        }
         const button = document.querySelector(
           "ytmusic-player-bar #play-pause-button, ytmusic-player-bar .play-pause-button, #play-pause-button"
         );
