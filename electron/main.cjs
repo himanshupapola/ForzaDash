@@ -896,6 +896,53 @@ function createYouTubeMusicWindow() {
       backgroundThrottling: false,
     },
   });
+  youtubeMusicWindow.webContents.on("dom-ready", () => {
+    if (youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
+      youtubeMusicWindow.webContents.executeJavaScript(`
+        (() => {
+          if (window.forzaDashPrunerInjected) return;
+          window.forzaDashPrunerInjected = true;
+
+          const prune = (obj) => {
+            if (!obj || typeof obj !== "object") return obj;
+            try {
+              delete obj.playerAds;
+              delete obj.adPlacements;
+              delete obj.adSlots;
+              if (obj.playerResponse) {
+                delete obj.playerResponse.playerAds;
+                delete obj.playerResponse.adPlacements;
+                delete obj.playerResponse.adSlots;
+              }
+              if (obj.ytInitialPlayerResponse) {
+                delete obj.ytInitialPlayerResponse.playerAds;
+                delete obj.ytInitialPlayerResponse.adPlacements;
+                delete obj.ytInitialPlayerResponse.adSlots;
+              }
+            } catch {}
+            return obj;
+          };
+
+          try {
+            if (window.ytInitialPlayerResponse) prune(window.ytInitialPlayerResponse);
+            let rawInitial = window.ytInitialPlayerResponse;
+            Object.defineProperty(window, "ytInitialPlayerResponse", {
+              get() { return rawInitial; },
+              set(val) { rawInitial = prune(val); },
+              configurable: true,
+              enumerable: true
+            });
+          } catch {}
+
+          const originalParse = JSON.parse;
+          JSON.parse = function (...args) {
+            const result = originalParse.apply(this, args);
+            return prune(result);
+          };
+        })();
+      `).catch(() => {});
+    }
+  });
 
 
 
