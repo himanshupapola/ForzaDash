@@ -299,28 +299,23 @@ button:focus-visible,
 }
 
 .brand-mark {
-  height: 100%;
+  height: 75%;
+  align-self: start;
+  margin-top: calc(-1 * var(--hud-padding));
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 0;
   padding: 0 clamp(18px, 1.35vw, 28px);
-  border: 1px solid rgba(35, 151, 205, 0.1);
   border-right: 0;
   border-radius: 8px 0 0 8px;
-  background: linear-gradient(
-    140deg,
-    rgba(2, 8, 12, 0.96),
-    rgba(0, 4, 7, 0.86)
-  );
   clip-path: polygon(0 0, 88% 0, 100% 100%, 0 100%);
-  box-shadow: inset 0 0 30px rgba(21, 121, 180, 0.035);
 }
 
 .forza-logo {
   display: block;
   width: clamp(98px, 6.8vw, 138px);
-  max-height: 64%;
+  max-height: 93%;
   object-fit: contain;
   object-position: left center;
   filter: drop-shadow(0 0 9px rgba(255, 255, 255, 0.18));
@@ -330,8 +325,9 @@ button:focus-visible,
 .brand-lines {
   display: grid;
   align-content: center;
-  gap: 3px;
-  margin-left: -6px;
+  gap: 0px;
+  margin-left: -20px;
+  margin-top: 2px;
   font-family: Rajdhani, sans-serif;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -480,7 +476,9 @@ button:focus-visible,
 }
 
 .time-weather {
-  height: 100%;
+  height: 75%;
+  align-self: start;
+  margin-top: calc(-1 * var(--hud-padding));
   justify-content: end;
   gap: clamp(10px, 1vw, 20px);
   padding: 0 clamp(32px, 2.2vw, 44px) 0 clamp(44px, 3vw, 68px);
@@ -1249,7 +1247,7 @@ h3 {
   min-height: 0;
   display: grid;
   place-items: center;
-  transform: translate(clamp(-18px, -1vw, -10px), clamp(34px, 5vh, 63px));
+  transform: translate(clamp(-18px, -2vw, -10px), clamp(34px, 5vh, 63px));
   overflow: visible;
 }
 
@@ -3037,7 +3035,8 @@ h3 {
 
 
 .weather-panel {
-  padding: clamp(16px, 1.35vw, 24px) clamp(22px, 1.8vw, 34px);
+  padding: clamp(12px, 1.1vw, 20px) clamp(22px, 1.8vw, 34px);
+  transform: translateY(6px);
   display: grid;
   grid-template-columns: minmax(112px, 0.62fr) minmax(130px, 0.88fr) minmax(
       154px,
