@@ -20,8 +20,11 @@ function parseSuspensionTravel(value) {
 }
 
 function normalizeDisplayTireTemp(value) {
-  if (value <= 122) return Math.max(0, value);
-  return 122 + Math.sqrt(value - 122) * 1.15;
+  if (!Number.isFinite(value)) return 0;
+  if (value > 130) {
+    return Math.max(0, (value - 32) * (5 / 9));
+  }
+  return Math.max(0, value);
 }
 
 export default function TireSuspensionCard({
@@ -38,7 +41,7 @@ export default function TireSuspensionCard({
       <div className="tire-suspension-layout">
         {corners.map((corner, index) => {
           const tireTemp = parseTireTemp(tireTemps[index]);
-          const tempRatio = clamp((normalizeDisplayTireTemp(tireTemp) - 55) / 65, 0, 1);
+          const tempRatio = clamp((normalizeDisplayTireTemp(tireTemp) - 30) / 75, 0, 1);
           const tireHue = 122 - tempRatio * 102;
           const suspension = parseSuspensionTravel(suspensionTravel[index]);
           const suspensionRatio = clamp(suspension / 3, 0, 1);

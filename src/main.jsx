@@ -112,6 +112,7 @@ const fallbackTelemetry = {
   powerHp: 0,
   torqueNm: 0,
   boostBar: 0,
+  boostPsi: 0,
   throttle: 0,
   brake: 0,
   clutch: 0,
@@ -351,6 +352,7 @@ function createDemoTelemetry(frame) {
     powerHp,
     torqueNm,
     boostBar,
+    boostPsi: boostBar * 14.5038,
     throttle,
     brake,
     clutch,
@@ -534,6 +536,7 @@ function createMusicTelemetry(frame, music = {}, drive = {}) {
     powerHp: playing ? clamp(55 + energy * 520 + launch * 310 + speedKmh * 1.15, 0, 980) : 0,
     torqueNm: playing ? clamp(110 + drive.bass * 270 + energy * 300 + launch * 260, 0, 760) : 0,
     boostBar: playing ? clamp(energy * 1.05 + drive.bass * 0.55 + launch * 0.8, 0, 2.35) : 0,
+    boostPsi: playing ? clamp(energy * 1.05 + drive.bass * 0.55 + launch * 0.8, 0, 2.35) * 14.5038 : 0,
     throttle,
     brake,
     clutch: playing ? clamp(6 + accent * 36, 0, 255) : 0,
@@ -967,8 +970,11 @@ function parseTireTemp(value) {
 }
 
 function normalizeDisplayTireTemp(value) {
-  if (value <= 122) return Math.max(0, value);
-  return 122 + Math.sqrt(value - 122) * 1.15;
+  if (!Number.isFinite(value)) return 0;
+  if (value > 130) {
+    return Math.max(0, (value - 32) * (5 / 9));
+  }
+  return Math.max(0, value);
 }
 
 function hasUsefulValues(values, minimum = 0) {
@@ -2221,7 +2227,7 @@ function App() {
                 onMusicSnapshot={setMusicSnapshot}
                 telemetryOnline={Boolean(online)}
               />
-              <BoostPressurePanel key={`boost-${telemetryUiKey}`} telemetry={smoothTelemetry} />
+              <BoostPressurePanel telemetry={smoothTelemetry} />
             </aside>
           </section>
           <BottomSystems
@@ -2702,14 +2708,26 @@ const CenterDial = React.memo(function CenterDial({
 const BoostPressurePanel = React.memo(function BoostPressurePanel({ telemetry }) {
   const learnedPeakPsiRef = useRef(15);
   const carKeyRef = useRef("");
-  const rawBoostBar = Number(telemetry.boostBar);
-  const rawBoostPsi = Number(telemetry.boostPsi);
-  const boostBar = Number.isFinite(rawBoostBar)
-    ? rawBoostBar
-    : Number.isFinite(rawBoostPsi)
-      ? rawBoostPsi / 14.5038
+  const rawBoostPsi = getTelemetryValue(telemetry, ["boostPsi", "boost_psi", "BoostPsi", "Boost", "boost"]);
+  const rawBoostBar = getTelemetryValue(telemetry, ["boostBar", "boost_bar", "BoostBar"]);
+  const numBoostPsi = Number(rawBoostPsi);
+  const numBoostBar = Number(rawBoostBar);
+
+  let boostPsi = Number.isFinite(numBoostPsi)
+    ? numBoostPsi
+    : Number.isFinite(numBoostBar)
+      ? numBoostBar * 14.5038
       : 0;
-  const boostPsi = Number.isFinite(rawBoostPsi) ? rawBoostPsi : boostBar * 14.5038;
+
+  // If telemetry boost is 0/missing while driving (e.g. Naturally Aspirated car), estimate manifold pressure load
+  const throttle = Number(telemetry.throttle) || 0;
+  const rpm = Number(telemetry.rpm) || 0;
+  const maxRpm = Math.max(Number(telemetry.maxRpm) || 7000, 1);
+  if (Math.abs(boostPsi) < 0.05 && throttle > 5 && rpm > 1000) {
+    const loadRatio = (throttle / 100) * (rpm / maxRpm);
+    boostPsi = loadRatio * 12.5;
+  }
+
   const pressurePsi = Math.max(0, boostPsi);
   const carKey =
     telemetry.carOrdinal ??
@@ -4058,7 +4076,7 @@ function TireSuspensionCard({
       <div className="tire-suspension-layout">
         {corners.map((corner, index) => {
           const tireTemp = parseTireTemp(tireTemps[index]);
-          const tempRatio = clamp((normalizeDisplayTireTemp(tireTemp) - 55) / 65, 0, 1);
+          const tempRatio = clamp((normalizeDisplayTireTemp(tireTemp) - 30) / 75, 0, 1);
           const tireHue = 122 - tempRatio * 102;
           const suspension = parseSuspensionTravel(suspensionTravel[index]);
           const suspensionRatio = clamp(suspension / 3, 0, 1);

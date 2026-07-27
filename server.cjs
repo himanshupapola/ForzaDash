@@ -400,6 +400,11 @@ function deriveFuelMetrics(telemetry) {
   return derived;
 }
 
+function fahrenheitToCelsius(f) {
+  if (typeof f !== "number" || !Number.isFinite(f)) return f;
+  return (f - 32) * (5 / 9);
+}
+
 function normalizeForzaTelemetry(parsed, rawPacketSize = 0) {
   if (!parsed || typeof parsed !== "object") return null;
   try {
@@ -536,10 +541,10 @@ function normalizeForzaTelemetry(parsed, rawPacketSize = 0) {
       tireCombinedSlipFrontRight,
       tireCombinedSlipRearLeft,
       tireCombinedSlipRearRight,
-      tireTempFrontLeft,
-      tireTempFrontRight,
-      tireTempRearLeft,
-      tireTempRearRight,
+      tireTempFrontLeft: fahrenheitToCelsius(tireTempFrontLeft),
+      tireTempFrontRight: fahrenheitToCelsius(tireTempFrontRight),
+      tireTempRearLeft: fahrenheitToCelsius(tireTempRearLeft),
+      tireTempRearRight: fahrenheitToCelsius(tireTempRearRight),
       wheelRotationSpeedFrontLeft,
       wheelRotationSpeedFrontRight,
       wheelRotationSpeedRearLeft,
