@@ -837,7 +837,6 @@ function createDashboardWindow(dashboardUrl) {
     },
   });
 
-  dashboardWindow.setAspectRatio(16 / 10);
   dashboardWindow.loadURL(dashboardUrl);
   dashboardWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isDashboardUrl(url, dashboardUrl) || isSpotifyAuthUrl(url)) {

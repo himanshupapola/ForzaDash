@@ -49,8 +49,8 @@ button:focus-visible,
 
 .dashboard {
   --dashboard-bg: #000000;
-  --hud-top-row: clamp(50px, 6.2vh, 76px);
-  --hud-bottom-row: clamp(310px, 26vh, 399px);
+  --hud-top-row: clamp(48px, 6.2vh, 76px);
+  --hud-bottom-row: clamp(230px, 25vh, 340px);
   --hud-gap: clamp(4px, 0.65vh, 9px);
   --hud-padding: clamp(4px, 0.6vh, 8px);
   --main-grid-gap: clamp(10px, 1vw, 20px);
@@ -392,14 +392,16 @@ button:focus-visible,
     );
   justify-items: center;
   gap: 0;
-  height: 100%;
+  height: 76%;
+  align-self: start;
+  margin-top: calc(-1 * var(--hud-padding));
   padding-left: clamp(132px, 8vw, 178px);
   padding-right: clamp(118px, 7vw, 160px);
   border: 1px solid rgba(35, 151, 205, 0.1);
   border-bottom-left-radius: 76px 42px;
   border-bottom-right-radius: 76px 42px;
   clip-path: polygon(6% 0, 94% 0, 88.5% 100%, 11.5% 100%);
-  background: linear-gradient(180deg, rgba(2, 8, 12, 0.9), rgba(0, 4, 7, 0.72));
+  background: linear-gradient(140deg, rgba(2, 8, 12, 0.96), rgba(0, 4, 7, 0.86));
   box-shadow:
     inset 0 -1px 0 rgba(38, 174, 229, 0.11),
     inset 0 0 30px rgba(0, 184, 255, 0.025);
@@ -1278,13 +1280,7 @@ h3 {
   inset: -13%;
   z-index: 1;
   pointer-events: none;
-  background: radial-gradient(
-    ellipse at 49% 52%,
-    transparent 0 48%,
-    rgba(0, 0, 0, 0.18) 57%,
-    rgba(0, 0, 0, 0.72) 70%,
-    #000 86%
-  );
+  background: none;
 }
 
 .speedometer-bg {
@@ -1484,7 +1480,7 @@ h3 {
 .lower-g-meter {
   justify-self: start;
   gap: 5px;
-  transform: translate(0, -8%);
+  transform: translate(-74%, -31%);
 }
 
 .lower-g-grid {
@@ -1529,7 +1525,7 @@ h3 {
 .lower-center {
   gap: clamp(3px, 0.45vh, 7px);
   align-self: center;
-  transform: translateX(-32px) translateY(-8%);
+  transform: translateX(-59px) translateY(-8%);
 }
 
 .lower-gear {
@@ -1618,7 +1614,7 @@ h3 {
   display: grid;
   justify-items: center;
   gap: 5px;
-  transform: translateX(-65px) translateY(-8%);
+  transform: translateX(-74px) translateY(-33%);
 }
 
 .lower-drift-grid {
@@ -3732,7 +3728,7 @@ h3 {
 
 }
 
-@media (max-width: 1500px) and (min-width: 821px), (max-height: 860px) and (min-width: 821px) {
+@media (max-width: 1500px) and (min-width: 821px), (max-height: 1080px) and (min-width: 821px) {
   .right-stack {
     --right-stack-clearance: calc(clamp(24px, 3.2vh, 42px) + 10px);
     --right-power-height-shift: 0px;
@@ -4285,13 +4281,15 @@ h3 {
 @media (min-width: 821px) {
   body,
   #root {
-    display: grid;
-    place-items: center;
+    width: 100%;
+    height: 100%;
   }
 
   .dashboard {
-    width: min(100vw, 160dvh);
-    height: min(100dvh, 62.5vw);
-    aspect-ratio: 16 / 10;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
   }
 }
