@@ -5,6 +5,19 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 const { app, BrowserWindow, Menu, Tray, dialog, shell, powerSaveBlocker } = electron;
+const { ElectronBlocker } = require("@ghostery/adblocker-electron");
+const crossFetch = require("cross-fetch");
+
+let adblockerPromise = null;
+function getAdblocker() {
+  if (!adblockerPromise) {
+    adblockerPromise = ElectronBlocker.fromPrebuiltFull({ fetch: crossFetch }).catch((err) => {
+      console.error("AdBlocker load error:", err);
+      return null;
+    });
+  }
+  return adblockerPromise;
+}
 
 function writeStartupLog(message) {
   try {
@@ -895,6 +908,39 @@ function createYouTubeMusicWindow() {
       nodeIntegration: false,
       backgroundThrottling: false,
     },
+  });
+
+  getAdblocker().then((blocker) => {
+    if (blocker && youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
+      blocker.enableBlockingInSession(youtubeMusicWindow.webContents.session);
+    }
+  }).catch(() => {});
+
+  youtubeMusicWindow.webContents.on("did-finish-load", () => {
+    if (youtubeMusicWindow && !youtubeMusicWindow.isDestroyed()) {
+      youtubeMusicWindow.webContents.executeJavaScript(`
+        (() => {
+          if (window.forzaDashAdSkipActive) return;
+          window.forzaDashAdSkipActive = true;
+          setInterval(() => {
+            try {
+              const skipBtn = document.querySelector(".ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, button.ytp-ad-skip-button-element");
+              if (skipBtn) skipBtn.click();
+              const adContainer = document.querySelector(".ad-showing, .video-ads, .ytp-ad-module");
+              if (adContainer) {
+                const vid = document.querySelector("video");
+                if (vid) {
+                  vid.muted = true;
+                  if (Number.isFinite(vid.duration) && vid.duration > 0) {
+                    vid.currentTime = vid.duration - 0.1;
+                  }
+                }
+              }
+            } catch {}
+          }, 350);
+        })();
+      `).catch(() => {});
+    }
   });
 
   youtubeMusicWindow.on("close", (event) => {
