@@ -194,3 +194,11 @@ If music controls do not work:
 ## Disclaimer
 
 ForzaDash is an independent third-party project. It is not affiliated with, endorsed by, or sponsored by Microsoft, Xbox Game Studios, Playground Games, Turn 10 Studios, or the Forza franchise.
+
+## Support ForzaDash
+
+If you like ForzaDash and want to support the project, you can send a small donation in USDT (BEP-20):
+
+0x5024372e2F0359023180f8FEF74f5d5b195c707c
+
+Thanks for supporting the project ❤️
